@@ -1,13 +1,20 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+import secrets
+import string
 
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'phone', 'id_number', 'profile_picture', 'specialization', 'profile_completed']
-        read_only_fields = ['id']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 
+                  'phone', 'id_number', 'profile_picture', 'specialization', 
+                  'profile_completed', 'approval_status', 'email_verified', 
+                  'house_number', 'date_joined', 'registration_date']
+        read_only_fields = ['id', 'date_joined', 'approval_status', 'email_verified', 'registration_date']
+
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
@@ -21,7 +28,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'first_name', 'last_name', 'role', 'phone', 'id_number', 'specialization', 'profile_completed']
     
     def create(self, validated_data):
-        # Convert empty strings to None for fields that should be null
         if 'id_number' in validated_data and validated_data['id_number'] == '':
             validated_data['id_number'] = None
         if 'specialization' in validated_data and validated_data['specialization'] == '':
@@ -31,13 +37,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if 'phone' in validated_data and validated_data['phone'] == '':
             validated_data['phone'] = ''
             
-        # Set profile_completed to False by default
         validated_data['profile_completed'] = False
+        validated_data['approval_status'] = 'approved'
+        validated_data['email_verified'] = True
+        validated_data['is_active'] = True
+        
         user = User.objects.create_user(**validated_data)
         return user
 
+
 class ProfileCompletionSerializer(serializers.ModelSerializer):
-    """Serializer for users completing their profile on first login"""
     new_password = serializers.CharField(write_only=True, min_length=8, required=True)
     
     class Meta:
@@ -54,6 +63,76 @@ class ProfileCompletionSerializer(serializers.ModelSerializer):
         
         if new_password:
             instance.set_password(new_password)
+        
+        instance.save()
+        return instance
+
+
+class TenantRegistrationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'first_name', 'last_name', 
+                  'phone', 'id_number', 'house_number']
+        extra_kwargs = {
+            'password': {'write_only': True},
+        }
+    
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+    
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("This username is already taken.")
+        return value
+    
+    def validate_id_number(self, value):
+        if value and User.objects.filter(id_number=value).exists():
+            raise serializers.ValidationError("A user with this ID number already exists.")
+        return value
+    
+    def create(self, validated_data):
+        token = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
+        
+        user = User.objects.create(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
+            phone=validated_data.get('phone', ''),
+            id_number=validated_data.get('id_number', ''),
+            house_number=validated_data.get('house_number', ''),
+            password=make_password(validated_data['password']),
+            role='tenant',
+            approval_status='pending',
+            email_verified=False,
+            email_verification_token=token,
+            is_active=False,
+            profile_completed=False,
+        )
+        return user
+
+
+class UserApprovalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'approval_status', 'rejection_reason']
+    
+    def update(self, instance, validated_data):
+        status = validated_data.get('approval_status')
+        
+        if status == 'approved':
+            instance.approval_status = 'approved'
+            instance.is_active = True
+            instance.approved_by = self.context['request'].user
+            from django.utils import timezone
+            instance.approved_at = timezone.now()
+            instance.rejection_reason = None
+        elif status == 'rejected':
+            instance.approval_status = 'rejected'
+            instance.is_active = False
+            instance.rejection_reason = validated_data.get('rejection_reason', 'No reason provided')
         
         instance.save()
         return instance

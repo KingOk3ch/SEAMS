@@ -13,6 +13,7 @@ import ContractManagement from './components/ContractManagement';
 import TenantDashboard from './components/TenantDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import UserManagement from './components/UserManagement';
+import TenantRegistration from './components/TenantRegistration';
 
 const theme = createTheme({
   palette: {
@@ -52,7 +53,6 @@ function App() {
     setUser(null);
   };
 
-  // Redirect based on role after login
   const getDefaultRoute = () => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     if (user.role === 'tenant') return '/tenant-dashboard';
@@ -67,6 +67,7 @@ function App() {
         <Router>
           <Routes>
             <Route path="/" element={<Login onLogin={handleLogin} />} />
+            <Route path="/register" element={<TenantRegistration />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Router>
@@ -80,7 +81,6 @@ function App() {
       <Router>
         <Layout onLogout={handleLogout}>
           <Routes>
-            {/* Estate Admin Only Routes */}
             <Route 
               path="/dashboard" 
               element={
@@ -129,8 +129,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
-            {/* Maintenance - All roles can access */}
             <Route 
               path="/maintenance" 
               element={
@@ -139,8 +137,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
-            {/* Tenant Dashboard - Tenant only */}
             <Route 
               path="/tenant-dashboard" 
               element={
@@ -149,8 +145,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
-            {/* Default redirect based on role */}
             <Route path="*" element={<Navigate to={getDefaultRoute()} />} />
           </Routes>
         </Layout>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -11,15 +11,35 @@ import {
   ListItemIcon,
   Chip,
   Button,
+  IconButton,
+  Collapse,
+  Divider,
+  Badge,
 } from '@mui/material';
-import { Home, CheckCircle, Build, Info, Warning, Assessment } from '@mui/icons-material';
+import { 
+  Home, 
+  CheckCircle, 
+  Build, 
+  Info, 
+  Warning, 
+  Assessment,
+  ExpandMore,
+  ExpandLess,
+  Check,
+  Close,
+  HourglassEmpty,
+} from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import StatsCard from '../components/StatsCard';
+import api from '../services/api';
 
 const DashboardPage = () => {
   const { user } = useAuth();
-
-  const stats = [
+  const [expandApprovals, setExpandApprovals] = useState(false);
+  const [expandMaintenance, setExpandMaintenance] = useState(false);
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [pendingMaintenance, setPendingMaintenance] = useState([]);
+  const [stats, setStats] = useState([
     {
       title: 'Total Houses',
       value: '245',
@@ -52,7 +72,7 @@ const DashboardPage = () => {
       color: '#4F5F8D',
       trend: 'down',
     },
-  ];
+  ]);
 
   const recentRequests = [
     {
@@ -78,24 +98,204 @@ const DashboardPage = () => {
     },
   ];
 
+  useEffect(() => {
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      fetchPendingData();
+    }
+  }, [user]);
+
+  const fetchPendingData = async () => {
+    try {
+      const [approvalsRes, maintenanceRes] = await Promise.all([
+        api.get('/users/pending_approvals/'),
+        api.get('/maintenance/?status=pending')
+      ]);
+
+      setPendingUsers(approvalsRes.data.results || []);
+      setPendingMaintenance(maintenanceRes.data.slice(0, 5) || []);
+
+      setStats(prev => prev.map(stat => {
+        if (stat.title === 'Pending Maintenance') {
+          return { ...stat, value: maintenanceRes.data.length.toString() };
+        }
+        return stat;
+      }));
+    } catch (error) {
+      console.error('Error fetching pending data:', error);
+    }
+  };
+
+  const handleApprove = async (userId) => {
+    if (!window.confirm('Approve this user registration?')) return;
+
+    try {
+      await api.post(`/users/${userId}/approve/`);
+      alert('User approved successfully');
+      fetchPendingData();
+    } catch (error) {
+      alert('Error approving user: ' + (error.response?.data?.error || 'Unknown error'));
+    }
+  };
+
+  const handleReject = async (userId) => {
+    const reason = prompt('Enter rejection reason:');
+    if (!reason) return;
+
+    try {
+      await api.post(`/users/${userId}/reject/`, { rejection_reason: reason });
+      alert('User registration rejected');
+      fetchPendingData();
+    } catch (error) {
+      alert('Error rejecting user: ' + (error.response?.data?.error || 'Unknown error'));
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Welcome back, {user?.name}
+        Welcome back, {user?.name || user?.username}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 4 }}>
         Here's what's happening with your estates today
       </Typography>
 
       <Grid container spacing={3}>
-        {/* Stats Cards */}
         {stats.map((stat, index) => (
           <Grid item xs={12} sm={6} md={3} key={index}>
             <StatsCard {...stat} />
           </Grid>
         ))}
 
-        {/* Recent Maintenance Requests */}
+        {(user?.role === 'admin' || user?.role === 'manager') && pendingUsers.length > 0 && (
+          <Grid item xs={12}>
+            <Card sx={{ borderLeft: '4px solid #EF4444' }}>
+              <CardContent>
+                <Box display="flex" alignItems="center" justifyContent="space-between">
+                  <Box display="flex" alignItems="center" gap={2}>
+                    <HourglassEmpty sx={{ color: '#EF4444' }} />
+                    <Typography variant="h6" fontWeight="bold">
+                      Pending User Approvals
+                    </Typography>
+                    <Chip 
+                      label={pendingUsers.length} 
+                      color="error" 
+                      size="small" 
+                    />
+                  </Box>
+                  <IconButton onClick={() => setExpandApprovals(!expandApprovals)}>
+                    {expandApprovals ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Box>
+
+                <Collapse in={expandApprovals}>
+                  <List sx={{ mt: 2 }}>
+                    {pendingUsers.map((pendingUser, index) => (
+                      <React.Fragment key={pendingUser.id}>
+                        {index > 0 && <Divider />}
+                        <ListItem
+                          secondaryAction={
+                            <Box display="flex" gap={1}>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                size="small"
+                                startIcon={<Check />}
+                                onClick={() => handleApprove(pendingUser.id)}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                startIcon={<Close />}
+                                onClick={() => handleReject(pendingUser.id)}
+                              >
+                                Reject
+                              </Button>
+                            </Box>
+                          }
+                        >
+                          <ListItemText
+                            primary={`${pendingUser.first_name} ${pendingUser.last_name}`}
+                            secondary={
+                              <>
+                                <Typography variant="body2" component="span">
+                                  Email: {pendingUser.email} | Phone: {pendingUser.phone || 'N/A'}
+                                </Typography>
+                                <br />
+                                <Typography variant="body2" component="span">
+                                  House: {pendingUser.house_number || 'N/A'} | ID: {pendingUser.id_number || 'N/A'}
+                                </Typography>
+                                <br />
+                                <Typography variant="caption" color="text.secondary">
+                                  Registered: {new Date(pendingUser.registration_date).toLocaleString()}
+                                </Typography>
+                              </>
+                            }
+                          />
+                        </ListItem>
+                      </React.Fragment>
+                    ))}
+                  </List>
+                </Collapse>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {(user?.role === 'admin' || user?.role === 'manager') && pendingMaintenance.length > 0 && (
+          <Grid item xs={12}>
+            <Card sx={{ borderLeft: '4px solid #F59E0B' }}>
+              <CardContent>
+                <Box display="flex" alignItems="center" justifyContent="space-between">
+                  <Box display="flex" alignItems="center" gap={2}>
+                    <Build sx={{ color: '#F59E0B' }} />
+                    <Typography variant="h6" fontWeight="bold">
+                      Pending Maintenance Requests
+                    </Typography>
+                    <Chip 
+                      label={pendingMaintenance.length} 
+                      sx={{ bgcolor: '#F59E0B', color: 'white' }}
+                      size="small" 
+                    />
+                  </Box>
+                  <IconButton onClick={() => setExpandMaintenance(!expandMaintenance)}>
+                    {expandMaintenance ? <ExpandLess /> : <ExpandMore />}
+                  </IconButton>
+                </Box>
+
+                <Collapse in={expandMaintenance}>
+                  <List sx={{ mt: 2 }}>
+                    {pendingMaintenance.map((request, index) => (
+                      <React.Fragment key={request.id}>
+                        {index > 0 && <Divider />}
+                        <ListItem>
+                          <ListItemText
+                            primary={request.title}
+                            secondary={
+                              <>
+                                <Typography variant="body2" component="span">
+                                  {request.description}
+                                </Typography>
+                                <br />
+                                <Typography variant="caption" color="text.secondary">
+                                  House: {request.house_number} | Priority: {request.priority} | 
+                                  {new Date(request.created_at).toLocaleDateString()}
+                                </Typography>
+                              </>
+                            }
+                          />
+                        </ListItem>
+                      </React.Fragment>
+                    ))}
+                  </List>
+                </Collapse>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         <Grid item xs={12} md={8}>
           <Card>
             <CardContent>
@@ -127,7 +327,6 @@ const DashboardPage = () => {
           </Card>
         </Grid>
 
-        {/* Quick Actions & Notifications */}
         <Grid item xs={12} md={4}>
           <Card>
             <CardContent>

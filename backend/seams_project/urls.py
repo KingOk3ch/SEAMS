@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from users.views import UserViewSet
+from users.views import UserViewSet, tenant_register, verify_email
 from estates.views import HouseViewSet, TenantViewSet, ContractViewSet, PaymentViewSet
 from maintenance.views import MaintenanceRequestViewSet, MaintenanceImageViewSet
 
@@ -23,6 +23,8 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/register/tenant/', tenant_register, name='tenant-register'),
+    path('api/auth/verify-email/<str:token>/', verify_email, name='verify-email'),
 ]
 
 if settings.DEBUG:

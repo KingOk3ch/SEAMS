@@ -7,7 +7,8 @@ import {
   Typography,
   Box,
   Alert,
-  CircularProgress
+  CircularProgress,
+  Link
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ProfileCompletion from './ProfileCompletion';
@@ -38,11 +39,9 @@ function Login({ onLogin }) {
       const data = await response.json();
 
       if (response.ok) {
-        // Store tokens in localStorage
         localStorage.setItem('access_token', data.access);
         localStorage.setItem('refresh_token', data.refresh);
         
-        // Get user info
         const userResponse = await fetch('http://localhost:8000/api/users/me/', {
           headers: {
             'Authorization': `Bearer ${data.access}`,
@@ -52,14 +51,11 @@ function Login({ onLogin }) {
         const fetchedUserData = await userResponse.json();
         localStorage.setItem('user', JSON.stringify(fetchedUserData));
         
-        // Check if profile is completed
         if (!fetchedUserData.profile_completed) {
-          // Show profile completion dialog
           setUserData(fetchedUserData);
           setShowProfileCompletion(true);
           setLoading(false);
         } else {
-          // Profile already completed, proceed to dashboard
           onLogin(fetchedUserData);
           navigateToDashboard(fetchedUserData.role);
         }
@@ -75,17 +71,13 @@ function Login({ onLogin }) {
   };
 
   const handleProfileComplete = () => {
-    // Profile completed successfully
     setShowProfileCompletion(false);
-    
-    // Get updated user data from localStorage
     const updatedUser = JSON.parse(localStorage.getItem('user'));
     onLogin(updatedUser);
     navigateToDashboard(updatedUser.role);
   };
 
   const navigateToDashboard = (role) => {
-    // Navigate based on user role
     if (role === 'tenant') {
       navigate('/tenant-dashboard');
     } else if (role === 'technician') {
@@ -151,6 +143,19 @@ function Login({ onLogin }) {
                 {loading ? <CircularProgress size={24} /> : 'Login'}
               </Button>
 
+              <Box sx={{ textAlign: 'center', mt: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  New tenant?{' '}
+                  <Link
+                    href="/register"
+                    underline="hover"
+                    sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    Register here
+                  </Link>
+                </Typography>
+              </Box>
+
               <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
                 <Typography variant="caption" display="block" gutterBottom>
                   <strong>Test Accounts:</strong>
@@ -170,7 +175,6 @@ function Login({ onLogin }) {
         </Box>
       </Container>
 
-      {/* Profile Completion Dialog */}
       <ProfileCompletion 
         open={showProfileCompletion} 
         onComplete={handleProfileComplete}

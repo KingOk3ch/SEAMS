@@ -1,10 +1,18 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
-from .serializers import UserSerializer, UserRegistrationSerializer, ProfileCompletionSerializer
+from django.core.mail import send_mail
+from django.conf import settings
+from .serializers import (
+    UserSerializer, 
+    UserRegistrationSerializer, 
+    ProfileCompletionSerializer,
+    TenantRegistrationSerializer,
+    UserApprovalSerializer
+)
 import random
 import string
 
@@ -20,21 +28,18 @@ class UserViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
     
     def generate_random_password(self, length=12):
-        """Generate a random password with letters, digits, and special characters"""
         characters = string.ascii_letters + string.digits + '@#$%&*'
         password = ''.join(random.choice(characters) for i in range(length))
-        # Ensure it has at least one uppercase, one lowercase, one digit, one special char
         if (any(c.isupper() for c in password) and 
             any(c.islower() for c in password) and 
             any(c.isdigit() for c in password) and 
             any(c in '@#$%&*' for c in password)):
             return password
         else:
-            return self.generate_random_password(length)  # Try again
+            return self.generate_random_password(length)
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
-        # Generate random password if not provided
         data = request.data.copy()
         generated_password = None
         
@@ -46,7 +51,6 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             user = serializer.save()
             
-            # Include generated password in response (only once!)
             response_data = {
                 'user': UserSerializer(user).data,
                 'message': 'User created successfully'
@@ -61,10 +65,8 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def complete_profile(self, request):
-        """Endpoint for users to complete their profile on first login"""
         user = request.user
         
-        # Check if profile is already completed
         if user.profile_completed:
             return Response(
                 {'error': 'Profile already completed'}, 
@@ -82,14 +84,11 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
-        """Endpoint for users to update their own profile (email, phone, password)"""
         user = request.user
         
-        # Users can only update: email, phone, profile_picture
         allowed_fields = ['email', 'phone', 'profile_picture']
         update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
         
-        # Handle password change separately (requires old password verification)
         if 'old_password' in request.data and 'new_password' in request.data:
             if user.check_password(request.data['old_password']):
                 user.set_password(request.data['new_password'])
@@ -99,7 +98,6 @@ class UserViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Update other fields
         for field, value in update_data.items():
             setattr(user, field, value)
         
@@ -111,22 +109,157 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def me(self, request):
-        """Get current user's profile"""
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
     
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def reset_password(self, request, pk=None):
-        """Admin can reset a user's password to a new random one"""
         user = self.get_object()
         
-        # Generate new random password
         new_password = self.generate_random_password()
         user.set_password(new_password)
-        user.profile_completed = False  # Force user to complete profile again
+        user.profile_completed = False
         user.save()
         
         return Response({
             'message': f'Password reset successfully. New temporary password: {new_password}',
             'temporary_password': new_password
         }, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    def pending_approvals(self, request):
+        pending_users = User.objects.filter(approval_status='pending').order_by('-registration_date')
+        serializer = UserSerializer(pending_users, many=True)
+        return Response({
+            'count': pending_users.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def approve(self, request, pk=None):
+        user = self.get_object()
+        
+        if user.approval_status != 'pending':
+            return Response(
+                {'error': 'User is not pending approval'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = UserApprovalSerializer(
+            user, 
+            data={'approval_status': 'approved'}, 
+            context={'request': request}, 
+            partial=True
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            try:
+                send_mail(
+                    subject='Your SEAMS Account Has Been Approved',
+                    message=f'Hello {user.first_name},\n\nYour account has been approved! You can now log in to SEAMS.',
+                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                    recipient_list=[user.email],
+                    fail_silently=True,
+                )
+            except:
+                pass
+            
+            return Response({
+                'message': 'User approved successfully',
+                'user': UserSerializer(user).data
+            }, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def reject(self, request, pk=None):
+        user = self.get_object()
+        
+        if user.approval_status != 'pending':
+            return Response(
+                {'error': 'User is not pending approval'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        rejection_reason = request.data.get('rejection_reason', 'No reason provided')
+        
+        serializer = UserApprovalSerializer(
+            user, 
+            data={
+                'approval_status': 'rejected', 
+                'rejection_reason': rejection_reason
+            }, 
+            context={'request': request}, 
+            partial=True
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            try:
+                send_mail(
+                    subject='SEAMS Account Registration Update',
+                    message=f'Hello {user.first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}',
+                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                    recipient_list=[user.email],
+                    fail_silently=True,
+                )
+            except:
+                pass
+            
+            return Response({
+                'message': 'User rejected',
+            }, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def tenant_register(request):
+    serializer = TenantRegistrationSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.save()
+        
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        verification_link = f"{frontend_url}/verify-email/{user.email_verification_token}"
+        
+        try:
+            send_mail(
+                subject='Verify Your Email - SEAMS',
+                message=f'Click this link to verify your email: {verification_link}',
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                recipient_list=[user.email],
+                fail_silently=True,
+            )
+        except:
+            pass
+        
+        return Response({
+            'message': 'Registration successful! Please check your email to verify your account. Admin will review your registration.',
+            'user_id': user.id,
+            'email': user.email,
+        }, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verify_email(request, token):
+    try:
+        user = User.objects.get(email_verification_token=token)
+        user.email_verified = True
+        user.email_verification_token = None
+        user.save()
+        
+        return Response({
+            'message': 'Email verified successfully! Your registration is now pending admin approval.'
+        }, status=status.HTTP_200_OK)
+    except User.DoesNotExist:
+        return Response({
+            'error': 'Invalid verification token'
+        }, status=status.HTTP_400_BAD_REQUEST)
