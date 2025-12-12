@@ -21,6 +21,8 @@ import {
   TextField,
   MenuItem,
   IconButton,
+  ImageList,
+  ImageListItem
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -36,14 +38,20 @@ function MaintenanceRequests() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  
+  // Data States
   const [currentRequest, setCurrentRequest] = useState(null);
   const [selectedTechnician, setSelectedTechnician] = useState('');
   const [userRole, setUserRole] = useState('');
   const [tenantHouse, setTenantHouse] = useState(null);
   const [selectedImages, setSelectedImages] = useState([]);
+  
   const [formData, setFormData] = useState({
     house: '',
     issue_description: '',
@@ -72,8 +80,10 @@ function MaintenanceRequests() {
       let filteredRequests = requestsData;
       
       if (user.role === 'tenant') {
+        // Show only requests reported by this tenant
         filteredRequests = requestsData.filter(m => m.reported_by == user.id);
         
+        // Fetch tenant's house for auto-filling
         const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -83,20 +93,20 @@ function MaintenanceRequests() {
           setTenantHouse(myTenant.house);
         }
       } else if (user.role === 'technician') {
+        // Show only requests assigned to this technician
         filteredRequests = requestsData.filter(m => m.assigned_to == user.id);
       }
       
       setRequests(filteredRequests);
 
+      // Admin fetches extra data (Houses and Technicians)
       if (user.role === 'estate_admin') {
         const housesResponse = await fetch('http://localhost:8000/api/houses/', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const housesData = await housesResponse.json();
         setHouses(housesData);
-      }
 
-      if (user.role === 'estate_admin') {
         const usersResponse = await fetch('http://localhost:8000/api/users/', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -129,6 +139,7 @@ function MaintenanceRequests() {
       setEditMode(false);
       setCurrentRequest(null);
       
+      // Auto-fill house for tenants
       if (userRole === 'tenant') {
         setFormData({
           house: tenantHouse,
@@ -158,17 +169,16 @@ function MaintenanceRequests() {
     setEditMode(false);
     setCurrentRequest(null);
     setSelectedImages([]);
+    setUploadingImages(false);
   };
 
   const handleOpenAssignDialog = (request) => {
     setCurrentRequest(request);
-    
-    // Filter technicians based on the request category
+    // Filter technicians by specialization
     const compatibleTechs = technicians.filter(tech => 
       tech.specialization === request.category
     );
     setFilteredTechnicians(compatibleTechs);
-    
     setSelectedTechnician(request.assigned_to || '');
     setOpenAssignDialog(true);
   };
@@ -182,10 +192,7 @@ function MaintenanceRequests() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleImageSelect = (e) => {
@@ -204,7 +211,7 @@ function MaintenanceRequests() {
       };
 
       if (userRole === 'tenant') {
-        submitData.priority = 'medium';
+        submitData.priority = 'medium'; // Tenants cannot set priority
       }
 
       const url = editMode 
@@ -213,6 +220,7 @@ function MaintenanceRequests() {
       
       const method = editMode ? 'PUT' : 'POST';
 
+      // 1. Create/Update the Maintenance Request
       const response = await fetch(url, {
         method: method,
         headers: {
@@ -223,6 +231,31 @@ function MaintenanceRequests() {
       });
 
       if (response.ok) {
+        const requestData = await response.json();
+        
+        // 2. Upload Images (Only on creation for simplicity)
+        if (selectedImages.length > 0 && !editMode) {
+          setUploadingImages(true);
+          const requestId = requestData.id;
+          
+          // Loop through images and upload one by one
+          for (let i = 0; i < selectedImages.length; i++) {
+            const formData = new FormData();
+            formData.append('maintenance_request', requestId);
+            formData.append('image', selectedImages[i]);
+            
+            await fetch('http://localhost:8000/api/maintenance-images/', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                // Content-Type is auto-set by browser for FormData
+              },
+              body: formData
+            });
+          }
+          setUploadingImages(false);
+        }
+        
         fetchData();
         handleCloseDialog();
         setSuccess(editMode ? 'Request updated successfully' : 'Request created successfully');
@@ -232,6 +265,7 @@ function MaintenanceRequests() {
         setError(JSON.stringify(data));
       }
     } catch (err) {
+      setUploadingImages(false);
       setError('Failed to save request');
       console.error('Error:', err);
     }
@@ -265,28 +299,29 @@ function MaintenanceRequests() {
   };
 
   const handleDelete = async (requestId) => {
-    if (!window.confirm('Are you sure you want to delete this request?')) {
-      return;
-    }
-
+    if (!window.confirm('Are you sure you want to delete this request?')) return;
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/maintenance/${requestId}/`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-
       if (response.ok) {
         fetchData();
         setSuccess('Request deleted successfully');
-        setError('');
       } else {
         setError('Failed to delete request');
       }
     } catch (err) {
       setError('Failed to delete request');
-      console.error('Error:', err);
     }
+  };
+
+  // Helper to handle full vs relative image URLs
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return '';
+    if (imagePath.startsWith('http')) return imagePath;
+    return `http://localhost:8000${imagePath}`;
   };
 
   const getStatusColor = (status) => {
@@ -317,13 +352,25 @@ function MaintenanceRequests() {
     });
   };
 
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
+  // --- Task 3 Logic: Filter Status Options ---
+  let statusOptions = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'assigned', label: 'Assigned' },
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' }
+  ];
+
+  if (userRole === 'technician') {
+    // Technicians cannot see "Assigned" or "Cancelled"
+    statusOptions = [
+      { value: 'pending', label: 'Pending' },
+      { value: 'in_progress', label: 'In Progress' },
+      { value: 'completed', label: 'Completed' }
+    ];
   }
+
+  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
     <Container maxWidth="lg">
@@ -332,38 +379,24 @@ function MaintenanceRequests() {
           <Typography variant="h4" gutterBottom>
             {userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}
           </Typography>
+          {/* Only Admin and Tenants can create requests */}
           {userRole !== 'technician' && (
-            <Button 
-              variant="contained" 
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenDialog()}
-            >
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
               New Request
             </Button>
           )}
         </Box>
-        <Typography variant="body2" color="text.secondary">
-          Total Requests: {requests.length}
-        </Typography>
+        <Typography variant="body2" color="text.secondary">Total Requests: {requests.length}</Typography>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell><strong>Request ID</strong></TableCell>
+              <TableCell><strong>ID</strong></TableCell>
               <TableCell><strong>House</strong></TableCell>
               <TableCell><strong>Category</strong></TableCell>
               <TableCell><strong>Issue</strong></TableCell>
@@ -378,9 +411,7 @@ function MaintenanceRequests() {
             {requests.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={9} align="center">
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
-                    No maintenance requests found
-                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No maintenance requests found</Typography>
                 </TableCell>
               </TableRow>
             ) : (
@@ -388,60 +419,23 @@ function MaintenanceRequests() {
                 <TableRow key={request.id} hover>
                   <TableCell>{request.request_id}</TableCell>
                   <TableCell>{request.house_number}</TableCell>
-                  <TableCell>
-                    {request.category.replace('_', ' ').toUpperCase()}
-                  </TableCell>
-                  <TableCell>{request.issue_description}</TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={request.priority.toUpperCase()} 
-                      color={getPriorityColor(request.priority)}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={request.status.replace('_', ' ').toUpperCase()} 
-                      color={getStatusColor(request.status)}
-                      size="small"
-                    />
-                  </TableCell>
+                  <TableCell>{request.category.replace('_', ' ').toUpperCase()}</TableCell>
+                  <TableCell>{request.issue_description.substring(0, 30)}...</TableCell>
+                  <TableCell><Chip label={request.priority.toUpperCase()} color={getPriorityColor(request.priority)} size="small" /></TableCell>
+                  <TableCell><Chip label={request.status.replace('_', ' ').toUpperCase()} color={getStatusColor(request.status)} size="small" /></TableCell>
                   <TableCell>{formatDate(request.created_at)}</TableCell>
-                  {userRole !== 'tenant' && (
-                    <TableCell>
-                      {request.assigned_to_name || 'Unassigned'}
-                    </TableCell>
-                  )}
+                  {userRole !== 'tenant' && <TableCell>{request.assigned_to_name || 'Unassigned'}</TableCell>}
                   <TableCell>
+                    {/* Admin Actions */}
                     {userRole === 'estate_admin' && (
                       <>
-                        <IconButton 
-                          size="small" 
-                          color="primary"
-                          onClick={() => handleOpenAssignDialog(request)}
-                          title="Assign Technician"
-                        >
-                          <AssignmentIcon />
-                        </IconButton>
-                        <IconButton 
-                          size="small" 
-                          color="error"
-                          onClick={() => handleDelete(request.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
+                        <IconButton size="small" color="primary" onClick={() => handleOpenAssignDialog(request)} title="Assign"><AssignmentIcon /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => handleDelete(request.id)} title="Delete"><DeleteIcon /></IconButton>
                       </>
                     )}
-                    
-                    {userRole === 'technician' && (
-                      <IconButton 
-                        size="small" 
-                        color="primary"
-                        onClick={() => handleOpenDialog(request)}
-                        title="Update Priority & Status"
-                      >
-                        <EditIcon />
-                      </IconButton>
+                    {/* View/Edit Action - For Everyone */}
+                    {(userRole === 'technician' || userRole === 'tenant' || userRole === 'estate_admin') && (
+                       <IconButton size="small" color="primary" onClick={() => handleOpenDialog(request)} title="View/Edit"><EditIcon /></IconButton>
                     )}
                   </TableCell>
                 </TableRow>
@@ -451,173 +445,115 @@ function MaintenanceRequests() {
         </Table>
       </TableContainer>
 
-      {/* Add/Edit Dialog */}
+      {/* Add/Edit/View Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
           {editMode 
-            ? (userRole === 'technician' ? 'Update Request Details' : 'Edit Maintenance Request')
+            ? (userRole === 'technician' ? 'Update Status & View' : 'Request Details')
             : 'New Maintenance Request'
           }
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            {userRole === 'estate_admin' && (
-              <TextField
-                select
-                label="House"
-                name="house"
-                value={formData.house}
-                onChange={handleInputChange}
-                required
-                fullWidth
-              >
+            
+            {/* HOUSE */}
+            {userRole === 'estate_admin' ? (
+              <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} required fullWidth>
                 {houses.map((house) => (
-                  <MenuItem key={house.id} value={house.id}>
-                    {house.house_number} - {house.house_type}
-                  </MenuItem>
+                  <MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type}</MenuItem>
                 ))}
               </TextField>
+            ) : (
+              <TextField label="House" value={editMode ? currentRequest?.house_number : (tenantHouse ? "My House" : "Not Assigned")} disabled fullWidth />
             )}
-
-            {userRole === 'tenant' && (
-              <Alert severity="info">
-                Request for your house
-              </Alert>
-            )}
-
-            <TextField
-              select
-              label="Category"
-              name="category"
-              value={formData.category}
-              onChange={handleInputChange}
-              required
-              fullWidth
-              disabled={userRole === 'technician' && editMode}
-            >
+            
+            <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician' && editMode}>
               <MenuItem value="plumbing">Plumbing</MenuItem>
               <MenuItem value="electrical">Electrical</MenuItem>
               <MenuItem value="structural">Structural</MenuItem>
               <MenuItem value="pest_control">Pest Control</MenuItem>
               <MenuItem value="general">General</MenuItem>
             </TextField>
+            
+            <TextField label="Issue Description" name="issue_description" value={formData.issue_description} onChange={handleInputChange} required multiline rows={3} fullWidth disabled={userRole === 'technician' && editMode} />
 
-            <TextField
-              label="Issue Description"
-              name="issue_description"
-              value={formData.issue_description}
-              onChange={handleInputChange}
-              required
-              multiline
-              rows={3}
-              fullWidth
-              disabled={userRole === 'technician' && editMode}
-            />
-
+            {/* STATUS & PRIORITY */}
             {userRole !== 'tenant' && (
-              <TextField
-                select
-                label="Priority"
-                name="priority"
-                value={formData.priority}
-                onChange={handleInputChange}
-                required
-                fullWidth
-              >
-                <MenuItem value="low">Low</MenuItem>
-                <MenuItem value="medium">Medium</MenuItem>
-                <MenuItem value="high">High</MenuItem>
-                <MenuItem value="urgent">Urgent</MenuItem>
-              </TextField>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician'}>
+                  <MenuItem value="low">Low</MenuItem>
+                  <MenuItem value="medium">Medium</MenuItem>
+                  <MenuItem value="high">High</MenuItem>
+                  <MenuItem value="urgent">Urgent</MenuItem>
+                </TextField>
+                
+                <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} required fullWidth>
+                  {statusOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                  ))}
+                </TextField>
+              </Box>
             )}
 
-            {userRole !== 'tenant' && (
-              <TextField
-                select
-                label="Status"
-                name="status"
-                value={formData.status}
-                onChange={handleInputChange}
-                required
-                fullWidth
-              >
-                <MenuItem value="pending">Pending</MenuItem>
-                <MenuItem value="assigned">Assigned</MenuItem>
-                <MenuItem value="in_progress">In Progress</MenuItem>
-                <MenuItem value="completed">Completed</MenuItem>
-              </TextField>
-            )}
-
+            {/* COST */}
             {(userRole === 'estate_admin' || userRole === 'technician') && (
-              <TextField
-                label="Estimated Cost (KSH)"
-                name="estimated_cost"
-                type="number"
-                value={formData.estimated_cost}
-                onChange={handleInputChange}
-                fullWidth
-              />
+              <TextField label="Estimated Cost (KSH)" name="estimated_cost" type="number" value={formData.estimated_cost} onChange={handleInputChange} fullWidth />
             )}
 
+            {/* IMAGES: UPLOAD (Tenant New Request) */}
             {userRole === 'tenant' && !editMode && (
               <Box>
-                <Button
-                  variant="outlined"
-                  component="label"
-                  startIcon={<PhotoCamera />}
-                  fullWidth
-                >
+                <Button variant="outlined" component="label" startIcon={<PhotoCamera />} fullWidth>
                   Upload Photos (Optional)
-                  <input
-                    type="file"
-                    hidden
-                    multiple
-                    accept="image/*"
-                    onChange={handleImageSelect}
-                  />
+                  <input type="file" hidden multiple accept="image/*" onChange={handleImageSelect} />
                 </Button>
                 {selectedImages.length > 0 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                    {selectedImages.length} image(s) selected
-                  </Typography>
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>{selectedImages.length} image(s) selected</Typography>
                 )}
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                  Attach photos to help technicians assess the issue
-                </Typography>
+              </Box>
+            )}
+
+            {/* IMAGES: VIEW GALLERY (Edit Mode) */}
+            {editMode && currentRequest?.images && currentRequest.images.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>Attached Images:</Typography>
+                <ImageList sx={{ width: '100%', height: 160 }} cols={3} rowHeight={100}>
+                  {currentRequest.images.map((img) => (
+                    <ImageListItem key={img.id}>
+                      <img
+                        src={getImageUrl(img.image)}
+                        alt="Maintenance Issue"
+                        loading="lazy"
+                        style={{ height: '100px', objectFit: 'cover', cursor: 'pointer', borderRadius: 4 }}
+                        onClick={() => window.open(getImageUrl(img.image), '_blank')}
+                      />
+                    </ImageListItem>
+                  ))}
+                </ImageList>
               </Box>
             )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editMode ? 'Update' : 'Submit Request'}
+          <Button onClick={handleCloseDialog} disabled={uploadingImages}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>
+            {uploadingImages ? 'Uploading...' : (editMode ? 'Update' : 'Submit Request')}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Assign Technician Dialog */}
+      {/* Assign Dialog (Admin Only) */}
       {userRole === 'estate_admin' && (
         <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="xs" fullWidth>
           <DialogTitle>Assign Technician</DialogTitle>
           <DialogContent>
             <Box sx={{ mt: 2 }}>
               {filteredTechnicians.length === 0 ? (
-                <Alert severity="warning">
-                  No technicians available with <strong>{currentRequest?.category}</strong> specialization.
-                </Alert>
+                <Alert severity="warning">No technicians available with <strong>{currentRequest?.category}</strong> specialization.</Alert>
               ) : (
-                <TextField
-                  select
-                  label="Select Technician"
-                  value={selectedTechnician}
-                  onChange={(e) => setSelectedTechnician(e.target.value)}
-                  fullWidth
-                >
+                <TextField select label="Select Technician" value={selectedTechnician} onChange={(e) => setSelectedTechnician(e.target.value)} fullWidth>
                   {filteredTechnicians.map((tech) => (
-                    <MenuItem key={tech.id} value={tech.id}>
-                      {tech.first_name} {tech.last_name}
-                    </MenuItem>
+                    <MenuItem key={tech.id} value={tech.id}>{tech.first_name} {tech.last_name}</MenuItem>
                   ))}
                 </TextField>
               )}
@@ -625,13 +561,7 @@ function MaintenanceRequests() {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-            <Button 
-              onClick={handleAssign} 
-              variant="contained" 
-              disabled={!selectedTechnician || filteredTechnicians.length === 0}
-            >
-              Assign
-            </Button>
+            <Button onClick={handleAssign} variant="contained" disabled={!selectedTechnician}>Assign</Button>
           </DialogActions>
         </Dialog>
       )}
