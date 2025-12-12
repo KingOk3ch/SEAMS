@@ -142,7 +142,6 @@ class UserViewSet(viewsets.ModelViewSet):
         if user.approval_status != 'pending':
             return Response({'error': 'User is not pending approval'}, status=400)
         
-        # 1. Validate House Selection
         house_id = request.data.get('house_id')
         if not house_id:
             return Response({'error': 'You must assign a house to approve a tenant.'}, status=400)
@@ -157,7 +156,6 @@ class UserViewSet(viewsets.ModelViewSet):
         except House.DoesNotExist:
              return Response({'error': 'House not found.'}, status=404)
 
-        # 2. Update User Status
         serializer = UserApprovalSerializer(
             user, 
             data={'approval_status': 'approved'}, 
@@ -168,13 +166,11 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             user = serializer.save()
             
-            # 3. Create Tenant Profile & Assign House
             try:
                 move_in = request.data.get('move_in_date')
                 start_date = request.data.get('contract_start')
                 end_date = request.data.get('contract_end')
                 
-                # Check if tenant profile already exists (rare but safe to check)
                 tenant, created = Tenant.objects.get_or_create(
                     user=user,
                     defaults={
@@ -187,7 +183,6 @@ class UserViewSet(viewsets.ModelViewSet):
                 )
                 
                 if not created:
-                    # Update existing profile
                     tenant.house = house
                     tenant.move_in_date = move_in
                     tenant.contract_start = start_date
@@ -195,17 +190,14 @@ class UserViewSet(viewsets.ModelViewSet):
                     tenant.status = 'active'
                     tenant.save()
 
-                # 4. Update House Status
                 house.status = 'occupied'
                 house.save()
                 
             except Exception as e:
-                # If tenant creation fails, revert user approval (simple rollback)
                 user.approval_status = 'pending'
                 user.save()
                 return Response({'error': f'Failed to create tenant profile: {str(e)}'}, status=400)
 
-            # 5. Send Email
             try:
                 if user.is_active:
                     email_msg = f'Hello {user.first_name},\n\nYour account is approved! You have been assigned House {house.house_number}.\nYou can now log in.'
@@ -280,13 +272,13 @@ def tenant_register(request):
     if serializer.is_valid():
         user = serializer.save()
         
-        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-        verification_link = f"{frontend_url}/verify-email/{user.email_verification_token}"
+        #  Send CODE 
+        code = user.email_verification_token
         
-        print(f"Sending verification email to {user.email} from {settings.DEFAULT_FROM_EMAIL}...")
+        print(f"Sending verification code {code} to {user.email}...")
         send_mail(
             subject='Verify Your Email - SEAMS',
-            message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nPlease click the link below to verify your email address:\n{verification_link}\n\nIf you did not request this, please ignore this email.',
+            message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nYour Email Verification Code is: {code}\n\nPlease enter this code to verify your account.\n\nIf you did not request this, please ignore this email.',
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
             fail_silently=False, 
@@ -294,7 +286,7 @@ def tenant_register(request):
         print("Email sent successfully.")
         
         return Response({
-            'message': 'Registration successful! Please check your email to verify your account. Admin will review your registration.',
+            'message': 'Registration successful! Verification code sent to email.',
             'user_id': user.id,
             'email': user.email,
         }, status=status.HTTP_201_CREATED)
@@ -302,14 +294,24 @@ def tenant_register(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([AllowAny])
-def verify_email(request, token):
+def verify_email(request):
+    # Verify using POST data (Code + Email)
+    email = request.data.get('email')
+    code = request.data.get('code')
+    
+    if not email or not code:
+        return Response({'error': 'Email and Code are required'}, status=400)
+
     try:
-        user = User.objects.get(email_verification_token=token)
-        user.email_verified = True
-        user.email_verification_token = None
+        user = User.objects.get(email=email, email_verification_token=code)
         
+        # Mark Verified
+        user.email_verified = True
+        user.email_verification_token = None # Clear code
+        
+        # Check Approval Status to activate login
         if user.approval_status == 'approved':
             user.is_active = True
             
@@ -318,7 +320,8 @@ def verify_email(request, token):
         return Response({
             'message': 'Email verified successfully! You can now log in if your account has been approved by the admin.'
         }, status=status.HTTP_200_OK)
+        
     except User.DoesNotExist:
         return Response({
-            'error': 'Invalid verification token'
+            'error': 'Invalid verification code or email'
         }, status=status.HTTP_400_BAD_REQUEST)

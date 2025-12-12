@@ -24,7 +24,9 @@ urlpatterns = [
     path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/register/tenant/', tenant_register, name='tenant-register'),
-    path('api/auth/verify-email/<str:token>/', verify_email, name='verify-email'),
+    
+    # No token param in URL, logic moved to POST body
+    path('api/auth/verify-email/', verify_email, name='verify-email'),
 ]
 
 if settings.DEBUG:

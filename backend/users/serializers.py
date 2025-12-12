@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
-import secrets
+import random
 import string
 
 User = get_user_model()
@@ -93,7 +93,8 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
         return value
     
     def create(self, validated_data):
-        token = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
+        # Generate 6-digit code
+        code = str(random.randint(100000, 999999))
         
         user = User.objects.create(
             username=validated_data['username'],
@@ -106,7 +107,7 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
             role='tenant',
             approval_status='pending',
             email_verified=False,
-            email_verification_token=token,
+            email_verification_token=code, # Saving the 6-digit code here
             is_active=False,
             profile_completed=False,
         )
@@ -128,7 +129,6 @@ class UserApprovalSerializer(serializers.ModelSerializer):
             instance.approved_at = timezone.now()
             instance.rejection_reason = None
             
-            # Only enable login if email is also verified
             if instance.email_verified:
                 instance.is_active = True
             else:
