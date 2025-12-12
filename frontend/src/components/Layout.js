@@ -9,6 +9,7 @@ import PaymentIcon from '@mui/icons-material/Payment';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle'; // Imported Icon
 import { useNavigate } from 'react-router-dom';
 
 const drawerWidth = 240;
@@ -38,11 +39,9 @@ function Layout({ children, onLogout }) {
     navigate('/');
   };
 
-  // Function to get menu items based on user role
   const getMenuItems = () => {
     const role = user.role;
 
-    // Estate Admin - sees everything
     if (role === 'estate_admin') {
       return [
         { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
@@ -55,14 +54,12 @@ function Layout({ children, onLogout }) {
       ];
     }
 
-    // Technician - only maintenance
     if (role === 'technician') {
       return [
         { text: 'Maintenance Requests', icon: <BuildIcon />, path: '/maintenance' },
       ];
     }
 
-    // Tenant - dashboard and maintenance
     if (role === 'tenant') {
       return [
         { text: 'My Dashboard', icon: <DashboardIcon />, path: '/tenant-dashboard' },
@@ -70,7 +67,6 @@ function Layout({ children, onLogout }) {
       ];
     }
 
-    // Default fallback
     return [];
   };
 
@@ -92,12 +88,24 @@ function Layout({ children, onLogout }) {
           </ListItem>
         ))}
       </List>
+      
+      {/* SEPARATOR AND PROFILE LINK */}
+      <Divider />
+      <List>
+        <ListItem disablePadding>
+          <ListItemButton onClick={() => navigate('/profile')}>
+            <ListItemIcon>
+              <AccountCircleIcon />
+            </ListItemIcon>
+            <ListItemText primary="My Profile" />
+          </ListItemButton>
+        </ListItem>
+      </List>
     </Box>
   );
 
   return (
     <Box sx={{ display: 'flex' }}>
-      {/* Top AppBar */}
       <AppBar
         position="fixed"
         sx={{
@@ -118,7 +126,6 @@ function Layout({ children, onLogout }) {
             Staff Estates Administration & Management System
           </Typography>
           
-          {/* User Profile */}
           <IconButton onClick={handleProfileClick} sx={{ ml: 2 }}>
             <Avatar sx={{ bgcolor: 'secondary.main' }}>
               {user.first_name?.[0] || user.username?.[0] || 'U'}
@@ -140,22 +147,22 @@ function Layout({ children, onLogout }) {
               </Typography>
             </MenuItem>
             <Divider />
+            <MenuItem onClick={() => { handleProfileClose(); navigate('/profile'); }}>
+              <ListItemIcon><AccountCircleIcon fontSize="small" /></ListItemIcon>
+              My Profile
+            </MenuItem>
             <MenuItem onClick={handleLogout}>
-              <ListItemIcon>
-                <LogoutIcon fontSize="small" />
-              </ListItemIcon>
+              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
               Logout
             </MenuItem>
           </Menu>
         </Toolbar>
       </AppBar>
 
-      {/* Sidebar Drawer */}
       <Box
         component="nav"
         sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
       >
-        {/* Mobile drawer */}
         <Drawer
           variant="temporary"
           open={mobileOpen}
@@ -168,8 +175,6 @@ function Layout({ children, onLogout }) {
         >
           {drawer}
         </Drawer>
-        
-        {/* Desktop drawer */}
         <Drawer
           variant="permanent"
           sx={{
@@ -182,7 +187,6 @@ function Layout({ children, onLogout }) {
         </Drawer>
       </Box>
 
-      {/* Main Content */}
       <Box
         component="main"
         sx={{
@@ -191,7 +195,7 @@ function Layout({ children, onLogout }) {
           width: { sm: `calc(100% - ${drawerWidth}px)` },
         }}
       >
-        <Toolbar /> {/* Spacer for AppBar */}
+        <Toolbar />
         {children}
       </Box>
     </Box>

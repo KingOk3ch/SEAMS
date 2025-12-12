@@ -86,9 +86,20 @@ class UserViewSet(viewsets.ModelViewSet):
     def update_profile(self, request):
         user = request.user
         
-        allowed_fields = ['email', 'phone', 'profile_picture']
+        # Security: first_name, last_name, and id_number are NOT in this list.
+        allowed_fields = [
+            'username', 'email', 'phone', 'specialization', 'profile_picture'
+        ]
+        
         update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
         
+        if 'username' in update_data and update_data['username'] != user.username:
+            if User.objects.filter(username=update_data['username']).exists():
+                return Response(
+                    {'username': ['This username is already taken.']}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         if 'old_password' in request.data and 'new_password' in request.data:
             if user.check_password(request.data['old_password']):
                 user.set_password(request.data['new_password'])
@@ -101,11 +112,17 @@ class UserViewSet(viewsets.ModelViewSet):
         for field, value in update_data.items():
             setattr(user, field, value)
         
-        user.save()
-        return Response({
-            'message': 'Profile updated successfully',
-            'user': UserSerializer(user).data
-        }, status=status.HTTP_200_OK)
+        if 'profile_picture' in request.FILES:
+            user.profile_picture = request.FILES['profile_picture']
+
+        try:
+            user.save()
+            return Response({
+                'message': 'Profile updated successfully',
+                'user': UserSerializer(user).data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def me(self, request):
@@ -271,8 +288,6 @@ def tenant_register(request):
     
     if serializer.is_valid():
         user = serializer.save()
-        
-        #  Send CODE 
         code = user.email_verification_token
         
         print(f"Sending verification code {code} to {user.email}...")
@@ -297,7 +312,6 @@ def tenant_register(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_email(request):
-    # Verify using POST data (Code + Email)
     email = request.data.get('email')
     code = request.data.get('code')
     
@@ -307,11 +321,9 @@ def verify_email(request):
     try:
         user = User.objects.get(email=email, email_verification_token=code)
         
-        # Mark Verified
         user.email_verified = True
-        user.email_verification_token = None # Clear code
+        user.email_verification_token = None
         
-        # Check Approval Status to activate login
         if user.approval_status == 'approved':
             user.is_active = True
             

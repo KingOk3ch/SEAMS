@@ -11,15 +11,12 @@ import {
   Link
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import ProfileCompletion from './ProfileCompletion';
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showProfileCompletion, setShowProfileCompletion] = useState(false);
-  const [userData, setUserData] = useState(null);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -51,14 +48,10 @@ function Login({ onLogin }) {
         const fetchedUserData = await userResponse.json();
         localStorage.setItem('user', JSON.stringify(fetchedUserData));
         
-        if (!fetchedUserData.profile_completed) {
-          setUserData(fetchedUserData);
-          setShowProfileCompletion(true);
-          setLoading(false);
-        } else {
-          onLogin(fetchedUserData);
-          navigateToDashboard(fetchedUserData.role);
-        }
+        // Log in immediately - bypassing profile completion
+        onLogin(fetchedUserData);
+        navigateToDashboard(fetchedUserData.role);
+        
       } else {
         setError(data.detail || 'Invalid username or password');
         setLoading(false);
@@ -68,13 +61,6 @@ function Login({ onLogin }) {
       console.error('Login error:', err);
       setLoading(false);
     }
-  };
-
-  const handleProfileComplete = () => {
-    setShowProfileCompletion(false);
-    const updatedUser = JSON.parse(localStorage.getItem('user'));
-    onLogin(updatedUser);
-    navigateToDashboard(updatedUser.role);
   };
 
   const navigateToDashboard = (role) => {
@@ -88,98 +74,76 @@ function Login({ onLogin }) {
   };
 
   return (
-    <>
-      <Container maxWidth="sm">
-        <Box
-          sx={{
-            marginTop: 8,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <Paper elevation={3} sx={{ padding: 4, width: '100%' }}>
-            <Typography component="h1" variant="h4" align="center" gutterBottom>
-              SEAMS Login
-            </Typography>
-            <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
-              Staff Estates Administration & Management System
-            </Typography>
+    <Container maxWidth="sm">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Paper elevation={3} sx={{ padding: 4, width: '100%' }}>
+          <Typography component="h1" variant="h4" align="center" gutterBottom>
+            SEAMS Login
+          </Typography>
+          <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
+            Staff Estates Administration & Management System
+          </Typography>
 
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
 
-            <Box component="form" onSubmit={handleSubmit}>
-              <TextField
-                margin="normal"
-                required
-                fullWidth
-                label="Username"
-                autoFocus
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={loading}
-              />
-              <TextField
-                margin="normal"
-                required
-                fullWidth
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
-              />
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                sx={{ mt: 3, mb: 2 }}
-                disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Login'}
-              </Button>
+          <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              label="Username"
+              autoFocus
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              sx={{ mt: 3, mb: 2 }}
+              disabled={loading}
+            >
+              {loading ? <CircularProgress size={24} /> : 'Login'}
+            </Button>
 
-              <Box sx={{ textAlign: 'center', mt: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  New tenant?{' '}
-                  <Link
-                    href="/register"
-                    underline="hover"
-                    sx={{ fontWeight: 'bold', cursor: 'pointer' }}
-                  >
-                    Register here
-                  </Link>
-                </Typography>
-              </Box>
-
-              <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                <Typography variant="caption" display="block" gutterBottom>
-                  <strong>Test Accounts:</strong>
-                </Typography>
-                <Typography variant="caption" display="block">
-                  Admin: john_admin / admin123
-                </Typography>
-                <Typography variant="caption" display="block">
-                  Technician: mike_tech / tech123
-                </Typography>
-                <Typography variant="caption" display="block">
-                  Tenant: jane_smith / tenant123
-                </Typography>
-              </Box>
+            <Box sx={{ textAlign: 'center', mt: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                New tenant?{' '}
+                <Link
+                  href="/register"
+                  underline="hover"
+                  sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  Register here
+                </Link>
+              </Typography>
             </Box>
-          </Paper>
-        </Box>
-      </Container>
-
-      <ProfileCompletion 
-        open={showProfileCompletion} 
-        onComplete={handleProfileComplete}
-      />
-    </>
+          </Box>
+        </Paper>
+      </Box>
+    </Container>
   );
 }
 
