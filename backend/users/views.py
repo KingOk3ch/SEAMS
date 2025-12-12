@@ -153,18 +153,25 @@ class UserViewSet(viewsets.ModelViewSet):
         )
         
         if serializer.is_valid():
-            serializer.save()
+            user = serializer.save()
             
+            # Send approval email
             try:
+                # Different message depending on whether they can login yet
+                if user.is_active:
+                    email_msg = f'Hello {user.first_name},\n\nYour account has been approved and you can now log in to SEAMS.'
+                else:
+                    email_msg = f'Hello {user.first_name},\n\nYour account has been approved by the Admin!\n\nHowever, you still need to verify your email address before you can log in. Please check your inbox for the verification link.'
+
                 send_mail(
                     subject='Your SEAMS Account Has Been Approved',
-                    message=f'Hello {user.first_name},\n\nYour account has been approved! You can now log in to SEAMS.',
-                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                    message=email_msg,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
-                    fail_silently=True,
+                    fail_silently=False,
                 )
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to send approval email: {e}")
             
             return Response({
                 'message': 'User approved successfully',
@@ -202,12 +209,12 @@ class UserViewSet(viewsets.ModelViewSet):
                 send_mail(
                     subject='SEAMS Account Registration Update',
                     message=f'Hello {user.first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}',
-                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
-                    fail_silently=True,
+                    fail_silently=False,
                 )
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to send rejection email: {e}")
             
             return Response({
                 'message': 'User rejected',
@@ -228,15 +235,22 @@ def tenant_register(request):
         verification_link = f"{frontend_url}/verify-email/{user.email_verification_token}"
         
         try:
+            print(f"Sending verification email to {user.email} from {settings.DEFAULT_FROM_EMAIL}...")
             send_mail(
                 subject='Verify Your Email - SEAMS',
-                message=f'Click this link to verify your email: {verification_link}',
-                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@seams.com'),
+                message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nPlease click the link below to verify your email address:\n{verification_link}\n\nIf you did not request this, please ignore this email.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
-                fail_silently=True,
+                fail_silently=False, 
             )
-        except:
-            pass
+            print("Email sent successfully.")
+        except Exception as e:
+            print(f"Failed to send email: {str(e)}")
+            return Response({
+                'message': 'Registration successful, but failed to send verification email. Please contact admin.',
+                'error': str(e),
+                'user_id': user.id
+            }, status=status.HTTP_201_CREATED)
         
         return Response({
             'message': 'Registration successful! Please check your email to verify your account. Admin will review your registration.',
@@ -254,10 +268,16 @@ def verify_email(request, token):
         user = User.objects.get(email_verification_token=token)
         user.email_verified = True
         user.email_verification_token = None
+        
+        # SECURITY UPDATE: 
+        # Only enable login (is_active=True) if Admin has ALSO approved.
+        if user.approval_status == 'approved':
+            user.is_active = True
+            
         user.save()
         
         return Response({
-            'message': 'Email verified successfully! Your registration is now pending admin approval.'
+            'message': 'Email verified successfully! You can now log in if your account has been approved by the admin.'
         }, status=status.HTTP_200_OK)
     except User.DoesNotExist:
         return Response({

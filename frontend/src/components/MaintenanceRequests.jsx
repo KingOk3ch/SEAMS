@@ -21,7 +21,6 @@ import {
   TextField,
   MenuItem,
   IconButton,
-  Grid
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -33,6 +32,7 @@ function MaintenanceRequests() {
   const [requests, setRequests] = useState([]);
   const [houses, setHouses] = useState([]);
   const [technicians, setTechnicians] = useState([]);
+  const [filteredTechnicians, setFilteredTechnicians] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -64,20 +64,16 @@ function MaintenanceRequests() {
       const token = localStorage.getItem('access_token');
       const user = JSON.parse(localStorage.getItem('user'));
       
-      // Fetch maintenance requests
       const requestsResponse = await fetch('http://localhost:8000/api/maintenance/', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const requestsData = await requestsResponse.json();
       
-      // Filter based on user role
       let filteredRequests = requestsData;
       
       if (user.role === 'tenant') {
-        // FIXED: Use == instead of === to handle type mismatch (string vs number)
         filteredRequests = requestsData.filter(m => m.reported_by == user.id);
         
-        // Get tenant's house
         const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -87,14 +83,11 @@ function MaintenanceRequests() {
           setTenantHouse(myTenant.house);
         }
       } else if (user.role === 'technician') {
-        // Technicians see only assigned requests
         filteredRequests = requestsData.filter(m => m.assigned_to == user.id);
       }
-      // Estate admin sees everything (no filter)
       
       setRequests(filteredRequests);
 
-      // Fetch houses (only for admin)
       if (user.role === 'estate_admin') {
         const housesResponse = await fetch('http://localhost:8000/api/houses/', {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -103,7 +96,6 @@ function MaintenanceRequests() {
         setHouses(housesData);
       }
 
-      // Fetch technicians (only for admin)
       if (user.role === 'estate_admin') {
         const usersResponse = await fetch('http://localhost:8000/api/users/', {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -137,13 +129,12 @@ function MaintenanceRequests() {
       setEditMode(false);
       setCurrentRequest(null);
       
-      // For tenants, auto-fill their house
       if (userRole === 'tenant') {
         setFormData({
           house: tenantHouse,
           issue_description: '',
           category: 'general',
-          priority: 'medium', // Default, will be changed by technician
+          priority: 'medium',
           status: 'pending',
           estimated_cost: ''
         });
@@ -171,6 +162,13 @@ function MaintenanceRequests() {
 
   const handleOpenAssignDialog = (request) => {
     setCurrentRequest(request);
+    
+    // Filter technicians based on the request category
+    const compatibleTechs = technicians.filter(tech => 
+      tech.specialization === request.category
+    );
+    setFilteredTechnicians(compatibleTechs);
+    
     setSelectedTechnician(request.assigned_to || '');
     setOpenAssignDialog(true);
   };
@@ -179,6 +177,7 @@ function MaintenanceRequests() {
     setOpenAssignDialog(false);
     setCurrentRequest(null);
     setSelectedTechnician('');
+    setFilteredTechnicians([]);
   };
 
   const handleInputChange = (e) => {
@@ -204,7 +203,6 @@ function MaintenanceRequests() {
         reported_by: user.id
       };
 
-      // Tenants can't set priority - it's always 'medium' initially
       if (userRole === 'tenant') {
         submitData.priority = 'medium';
       }
@@ -225,12 +223,6 @@ function MaintenanceRequests() {
       });
 
       if (response.ok) {
-        // TODO: Handle image upload here when backend is ready
-        // const requestData = await response.json();
-        // if (selectedImages.length > 0) {
-        //   uploadImages(requestData.id);
-        // }
-        
         fetchData();
         handleCloseDialog();
         setSuccess(editMode ? 'Request updated successfully' : 'Request created successfully');
@@ -268,31 +260,6 @@ function MaintenanceRequests() {
       }
     } catch (err) {
       setError('Failed to assign technician');
-      console.error('Error:', err);
-    }
-  };
-
-  const handleUpdateStatus = async (requestId, newStatus) => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/api/maintenance/${requestId}/update_status/`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-
-      if (response.ok) {
-        fetchData();
-        setSuccess('Status updated successfully');
-        setError('');
-      } else {
-        setError('Failed to update status');
-      }
-    } catch (err) {
-      setError('Failed to update status');
       console.error('Error:', err);
     }
   };
@@ -365,7 +332,6 @@ function MaintenanceRequests() {
           <Typography variant="h4" gutterBottom>
             {userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}
           </Typography>
-          {/* Only tenants and admins can create new requests */}
           {userRole !== 'technician' && (
             <Button 
               variant="contained" 
@@ -447,7 +413,6 @@ function MaintenanceRequests() {
                     </TableCell>
                   )}
                   <TableCell>
-                    {/* Admin can assign and delete */}
                     {userRole === 'estate_admin' && (
                       <>
                         <IconButton 
@@ -468,7 +433,6 @@ function MaintenanceRequests() {
                       </>
                     )}
                     
-                    {/* Technician can edit priority and status */}
                     {userRole === 'technician' && (
                       <IconButton 
                         size="small" 
@@ -479,8 +443,6 @@ function MaintenanceRequests() {
                         <EditIcon />
                       </IconButton>
                     )}
-                    
-                    {/* Tenant can only view (no actions) */}
                   </TableCell>
                 </TableRow>
               ))
@@ -499,7 +461,6 @@ function MaintenanceRequests() {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            {/* House field - only for admin, hidden for tenant (auto-filled) */}
             {userRole === 'estate_admin' && (
               <TextField
                 select
@@ -518,7 +479,6 @@ function MaintenanceRequests() {
               </TextField>
             )}
 
-            {/* Tenant sees their house (read-only info) */}
             {userRole === 'tenant' && (
               <Alert severity="info">
                 Request for your house
@@ -554,7 +514,6 @@ function MaintenanceRequests() {
               disabled={userRole === 'technician' && editMode}
             />
 
-            {/* Priority - Only technician and admin can set/change */}
             {userRole !== 'tenant' && (
               <TextField
                 select
@@ -572,7 +531,6 @@ function MaintenanceRequests() {
               </TextField>
             )}
 
-            {/* Status - Only technician and admin can change */}
             {userRole !== 'tenant' && (
               <TextField
                 select
@@ -590,7 +548,6 @@ function MaintenanceRequests() {
               </TextField>
             )}
 
-            {/* Estimated Cost - Technician and Admin can set */}
             {(userRole === 'estate_admin' || userRole === 'technician') && (
               <TextField
                 label="Estimated Cost (KSH)"
@@ -602,7 +559,6 @@ function MaintenanceRequests() {
               />
             )}
 
-            {/* Image Upload - For tenants creating new request */}
             {userRole === 'tenant' && !editMode && (
               <Box>
                 <Button
@@ -640,30 +596,40 @@ function MaintenanceRequests() {
         </DialogActions>
       </Dialog>
 
-      {/* Assign Technician Dialog - Only for admin */}
+      {/* Assign Technician Dialog */}
       {userRole === 'estate_admin' && (
         <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="xs" fullWidth>
           <DialogTitle>Assign Technician</DialogTitle>
           <DialogContent>
             <Box sx={{ mt: 2 }}>
-              <TextField
-                select
-                label="Select Technician"
-                value={selectedTechnician}
-                onChange={(e) => setSelectedTechnician(e.target.value)}
-                fullWidth
-              >
-                {technicians.map((tech) => (
-                  <MenuItem key={tech.id} value={tech.id}>
-                    {tech.first_name} {tech.last_name}
-                  </MenuItem>
-                ))}
-              </TextField>
+              {filteredTechnicians.length === 0 ? (
+                <Alert severity="warning">
+                  No technicians available with <strong>{currentRequest?.category}</strong> specialization.
+                </Alert>
+              ) : (
+                <TextField
+                  select
+                  label="Select Technician"
+                  value={selectedTechnician}
+                  onChange={(e) => setSelectedTechnician(e.target.value)}
+                  fullWidth
+                >
+                  {filteredTechnicians.map((tech) => (
+                    <MenuItem key={tech.id} value={tech.id}>
+                      {tech.first_name} {tech.last_name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
             </Box>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-            <Button onClick={handleAssign} variant="contained" disabled={!selectedTechnician}>
+            <Button 
+              onClick={handleAssign} 
+              variant="contained" 
+              disabled={!selectedTechnician || filteredTechnicians.length === 0}
+            >
               Assign
             </Button>
           </DialogActions>

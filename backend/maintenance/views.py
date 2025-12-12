@@ -19,6 +19,15 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
             User = get_user_model()
             try:
                 technician = User.objects.get(id=technician_id, role='technician')
+                
+                # Validation: Check if technician's specialization matches the request category
+                # We skip this check if the request category is 'general' as any tech might handle that,
+                # or if you want strict matching for everything, remove the 'general' condition.
+                if technician.specialization != maintenance.category:
+                    return Response({
+                        'error': f'Technician specialization ({technician.specialization}) does not match request category ({maintenance.category})'
+                    }, status=400)
+
                 maintenance.assigned_to = technician
                 maintenance.status = 'assigned'
                 maintenance.assigned_at = timezone.now()

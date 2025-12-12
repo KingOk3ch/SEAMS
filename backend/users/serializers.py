@@ -12,8 +12,8 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 
                   'phone', 'id_number', 'profile_picture', 'specialization', 
                   'profile_completed', 'approval_status', 'email_verified', 
-                  'house_number', 'date_joined', 'registration_date']
-        read_only_fields = ['id', 'date_joined', 'approval_status', 'email_verified', 'registration_date']
+                  'house_number', 'date_joined', 'registration_date', 'is_active']
+        read_only_fields = ['id', 'date_joined', 'approval_status', 'email_verified', 'registration_date', 'is_active']
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -124,11 +124,19 @@ class UserApprovalSerializer(serializers.ModelSerializer):
         
         if status == 'approved':
             instance.approval_status = 'approved'
-            instance.is_active = True
             instance.approved_by = self.context['request'].user
             from django.utils import timezone
             instance.approved_at = timezone.now()
             instance.rejection_reason = None
+            
+            # SECURITY UPDATE:
+            # Only enable login (is_active=True) if email is ALSO verified.
+            if instance.email_verified:
+                instance.is_active = True
+            else:
+                # Keep false. User must still verify email to login.
+                instance.is_active = False 
+                
         elif status == 'rejected':
             instance.approval_status = 'rejected'
             instance.is_active = False
