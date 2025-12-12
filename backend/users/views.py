@@ -2,10 +2,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
-from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
+from django.apps import apps 
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
@@ -140,11 +140,24 @@ class UserViewSet(viewsets.ModelViewSet):
         user = self.get_object()
         
         if user.approval_status != 'pending':
-            return Response(
-                {'error': 'User is not pending approval'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'User is not pending approval'}, status=400)
         
+        # 1. Validate House Selection
+        house_id = request.data.get('house_id')
+        if not house_id:
+            return Response({'error': 'You must assign a house to approve a tenant.'}, status=400)
+        
+        House = apps.get_model('estates', 'House')
+        Tenant = apps.get_model('estates', 'Tenant')
+        
+        try:
+            house = House.objects.get(id=house_id)
+            if house.status != 'vacant':
+                 return Response({'error': 'Selected house is not vacant.'}, status=400)
+        except House.DoesNotExist:
+             return Response({'error': 'House not found.'}, status=404)
+
+        # 2. Update User Status
         serializer = UserApprovalSerializer(
             user, 
             data={'approval_status': 'approved'}, 
@@ -155,16 +168,52 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             user = serializer.save()
             
-            # Send approval email
+            # 3. Create Tenant Profile & Assign House
             try:
-                # Different message depending on whether they can login yet
+                move_in = request.data.get('move_in_date')
+                start_date = request.data.get('contract_start')
+                end_date = request.data.get('contract_end')
+                
+                # Check if tenant profile already exists (rare but safe to check)
+                tenant, created = Tenant.objects.get_or_create(
+                    user=user,
+                    defaults={
+                        'house': house,
+                        'move_in_date': move_in,
+                        'contract_start': start_date,
+                        'contract_end': end_date,
+                        'status': 'active'
+                    }
+                )
+                
+                if not created:
+                    # Update existing profile
+                    tenant.house = house
+                    tenant.move_in_date = move_in
+                    tenant.contract_start = start_date
+                    tenant.contract_end = end_date
+                    tenant.status = 'active'
+                    tenant.save()
+
+                # 4. Update House Status
+                house.status = 'occupied'
+                house.save()
+                
+            except Exception as e:
+                # If tenant creation fails, revert user approval (simple rollback)
+                user.approval_status = 'pending'
+                user.save()
+                return Response({'error': f'Failed to create tenant profile: {str(e)}'}, status=400)
+
+            # 5. Send Email
+            try:
                 if user.is_active:
-                    email_msg = f'Hello {user.first_name},\n\nYour account has been approved and you can now log in to SEAMS.'
+                    email_msg = f'Hello {user.first_name},\n\nYour account is approved! You have been assigned House {house.house_number}.\nYou can now log in.'
                 else:
-                    email_msg = f'Hello {user.first_name},\n\nYour account has been approved by the Admin!\n\nHowever, you still need to verify your email address before you can log in. Please check your inbox for the verification link.'
+                    email_msg = f'Hello {user.first_name},\n\nYour account is approved and you have been assigned House {house.house_number}!\n\nPlease verify your email to log in.'
 
                 send_mail(
-                    subject='Your SEAMS Account Has Been Approved',
+                    subject='SEAMS Account Approved & House Assigned',
                     message=email_msg,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
@@ -174,7 +223,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 print(f"Failed to send approval email: {e}")
             
             return Response({
-                'message': 'User approved successfully',
+                'message': f'User approved and assigned to House {house.house_number}',
                 'user': UserSerializer(user).data
             }, status=status.HTTP_200_OK)
         
@@ -234,23 +283,15 @@ def tenant_register(request):
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
         verification_link = f"{frontend_url}/verify-email/{user.email_verification_token}"
         
-        try:
-            print(f"Sending verification email to {user.email} from {settings.DEFAULT_FROM_EMAIL}...")
-            send_mail(
-                subject='Verify Your Email - SEAMS',
-                message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nPlease click the link below to verify your email address:\n{verification_link}\n\nIf you did not request this, please ignore this email.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False, 
-            )
-            print("Email sent successfully.")
-        except Exception as e:
-            print(f"Failed to send email: {str(e)}")
-            return Response({
-                'message': 'Registration successful, but failed to send verification email. Please contact admin.',
-                'error': str(e),
-                'user_id': user.id
-            }, status=status.HTTP_201_CREATED)
+        print(f"Sending verification email to {user.email} from {settings.DEFAULT_FROM_EMAIL}...")
+        send_mail(
+            subject='Verify Your Email - SEAMS',
+            message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nPlease click the link below to verify your email address:\n{verification_link}\n\nIf you did not request this, please ignore this email.',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False, 
+        )
+        print("Email sent successfully.")
         
         return Response({
             'message': 'Registration successful! Please check your email to verify your account. Admin will review your registration.',
@@ -269,8 +310,6 @@ def verify_email(request, token):
         user.email_verified = True
         user.email_verification_token = None
         
-        # SECURITY UPDATE: 
-        # Only enable login (is_active=True) if Admin has ALSO approved.
         if user.approval_status == 'approved':
             user.is_active = True
             

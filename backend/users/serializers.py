@@ -72,7 +72,7 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['username', 'email', 'password', 'first_name', 'last_name', 
-                  'phone', 'id_number', 'house_number']
+                  'phone', 'id_number']
         extra_kwargs = {
             'password': {'write_only': True},
         }
@@ -102,7 +102,6 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
             last_name=validated_data['last_name'],
             phone=validated_data.get('phone', ''),
             id_number=validated_data.get('id_number', ''),
-            house_number=validated_data.get('house_number', ''),
             password=make_password(validated_data['password']),
             role='tenant',
             approval_status='pending',
@@ -129,12 +128,10 @@ class UserApprovalSerializer(serializers.ModelSerializer):
             instance.approved_at = timezone.now()
             instance.rejection_reason = None
             
-            # SECURITY UPDATE:
-            # Only enable login (is_active=True) if email is ALSO verified.
+            # Only enable login if email is also verified
             if instance.email_verified:
                 instance.is_active = True
             else:
-                # Keep false. User must still verify email to login.
                 instance.is_active = False 
                 
         elif status == 'rejected':

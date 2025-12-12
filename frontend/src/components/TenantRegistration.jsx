@@ -22,7 +22,6 @@ const TenantRegistration = () => {
     last_name: '',
     phone: '',
     id_number: '',
-    house_number: '',
   });
 
   const [errors, setErrors] = useState({});
@@ -41,10 +40,8 @@ const TenantRegistration = () => {
   const validate = () => {
     const newErrors = {};
 
-    if (!formData.username.trim()) {
-      newErrors.username = 'Username is required';
-    }
-
+    if (!formData.username.trim()) newErrors.username = 'Username is required';
+    
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
@@ -61,17 +58,9 @@ const TenantRegistration = () => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (!formData.first_name.trim()) {
-      newErrors.first_name = 'First name is required';
-    }
-
-    if (!formData.last_name.trim()) {
-      newErrors.last_name = 'Last name is required';
-    }
-
-    if (!formData.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    }
+    if (!formData.first_name.trim()) newErrors.first_name = 'First name is required';
+    if (!formData.last_name.trim()) newErrors.last_name = 'Last name is required';
+    if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -99,7 +88,7 @@ const TenantRegistration = () => {
           last_name: formData.last_name,
           phone: formData.phone,
           id_number: formData.id_number,
-          house_number: formData.house_number,
+          // House number is no longer collected here. Admin assigns it later.
         })
       });
 
@@ -109,7 +98,6 @@ const TenantRegistration = () => {
         const errorData = await response.json();
         const newErrors = {};
         
-        // Backend sends back field-specific errors
         Object.keys(errorData).forEach(key => {
           if (Array.isArray(errorData[key])) {
             newErrors[key] = errorData[key][0];
@@ -140,17 +128,11 @@ const TenantRegistration = () => {
             </Typography>
             <Typography color="text.secondary" sx={{ mb: 3 }}>
               Your account has been created and is pending admin approval.
-              Please check your email to verify your account.
             </Typography>
             <Alert severity="info" sx={{ mb: 3 }}>
-              You will receive an email notification once your account is approved.
-              You can then log in to access the system.
+              The admin will assign you a house and approve your account. You will receive an email once this process is complete.
             </Alert>
-            <Button
-              variant="contained"
-              href="/"
-              fullWidth
-            >
+            <Button variant="contained" href="/" fullWidth>
               Return to Login
             </Button>
           </CardContent>
@@ -255,17 +237,6 @@ const TenantRegistration = () => {
 
             <TextField
               fullWidth
-              label="House Number (if known)"
-              name="house_number"
-              value={formData.house_number}
-              onChange={handleChange}
-              error={!!errors.house_number}
-              helperText={errors.house_number}
-              sx={{ mb: 2 }}
-            />
-
-            <TextField
-              fullWidth
               label="Password"
               name="password"
               type="password"
@@ -301,11 +272,7 @@ const TenantRegistration = () => {
               {loading ? <CircularProgress size={24} /> : 'Register'}
             </Button>
 
-            <Button
-              variant="text"
-              fullWidth
-              href="/"
-            >
+            <Button variant="text" fullWidth href="/">
               Already have an account? Login
             </Button>
           </form>

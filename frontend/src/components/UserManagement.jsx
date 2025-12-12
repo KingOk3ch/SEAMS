@@ -21,7 +21,9 @@ import {
   TextField,
   MenuItem,
   IconButton,
-  Grid
+  Grid,
+  Tabs,
+  Tab
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -29,16 +31,26 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 
 function UserManagement() {
   const [users, setUsers] = useState([]);
+  const [vacantHouses, setVacantHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [tabValue, setTabValue] = useState(0);
+  
+  // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
+  const [openApproveDialog, setOpenApproveDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  
   const [currentUser, setCurrentUser] = useState(null);
   const [generatedPassword, setGeneratedPassword] = useState('');
+  
+  // User Form Data
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -51,8 +63,17 @@ function UserManagement() {
     specialization: ''
   });
 
+  // Approval Form Data
+  const [approvalData, setApprovalData] = useState({
+    house_id: '',
+    move_in_date: new Date().toISOString().split('T')[0],
+    contract_start: new Date().toISOString().split('T')[0],
+    contract_end: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+  });
+
   useEffect(() => {
     fetchUsers();
+    fetchVacantHouses();
   }, []);
 
   const fetchUsers = async () => {
@@ -70,6 +91,29 @@ function UserManagement() {
       console.error('Error:', err);
     }
   };
+
+  const fetchVacantHouses = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('http://localhost:8000/api/houses/vacant/', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setVacantHouses(data);
+      }
+    } catch (err) {
+      console.error('Error fetching vacant houses:', err);
+    }
+  };
+
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
+    setSuccess('');
+    setError('');
+  };
+
+  // --- User CRUD Handlers ---
 
   const handleOpenDialog = (user = null) => {
     if (user) {
@@ -118,26 +162,17 @@ function UserManagement() {
       ...prev,
       [name]: value
     }));
-    
-    // Clear specialization if role is not technician
     if (name === 'role' && value !== 'technician') {
-      setFormData(prev => ({
-        ...prev,
-        specialization: ''
-      }));
+      setFormData(prev => ({ ...prev, specialization: '' }));
     }
   };
 
   const handleSubmit = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      
       if (editMode) {
-        // Update user (excluding password if empty)
         const updateData = { ...formData };
-        if (!updateData.password) {
-          delete updateData.password;
-        }
+        if (!updateData.password) delete updateData.password;
         
         const response = await fetch(`http://localhost:8000/api/users/${currentUser.id}/`, {
           method: 'PUT',
@@ -152,15 +187,13 @@ function UserManagement() {
           fetchUsers();
           handleCloseDialog();
           setSuccess('User updated successfully');
-          setError('');
         } else {
           const data = await response.json();
           setError(JSON.stringify(data));
         }
       } else {
-        // Create new user - don't send password, let backend generate it
         const submitData = { ...formData };
-        delete submitData.password; // Remove password field to trigger auto-generation
+        delete submitData.password; 
         
         const response = await fetch('http://localhost:8000/api/users/register/', {
           method: 'POST',
@@ -173,18 +206,13 @@ function UserManagement() {
 
         if (response.ok) {
           const data = await response.json();
-          
-          // Show generated password to admin
           if (data.temporary_password) {
             setGeneratedPassword(data.temporary_password);
-            setSuccess(`User created! Temporary password: ${data.temporary_password} - Please share this with the user.`);
+            setSuccess(`User created! Temporary password: ${data.temporary_password}`);
           } else {
             setSuccess('User created successfully');
           }
-          
           fetchUsers();
-          setError('');
-          // Don't close dialog yet - show password first
         } else {
           const data = await response.json();
           setError(JSON.stringify(data));
@@ -192,15 +220,90 @@ function UserManagement() {
       }
     } catch (err) {
       setError('Failed to save user');
-      console.error('Error:', err);
+    }
+  };
+
+  // --- Approval Handlers ---
+
+  const handleOpenApproveDialog = (user) => {
+    setCurrentUser(user);
+    // Reset approval data
+    setApprovalData({
+      house_id: '',
+      move_in_date: new Date().toISOString().split('T')[0],
+      contract_start: new Date().toISOString().split('T')[0],
+      contract_end: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+    });
+    setOpenApproveDialog(true);
+  };
+
+  const handleCloseApproveDialog = () => {
+    setOpenApproveDialog(false);
+    setCurrentUser(null);
+  };
+
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    setApprovalData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleApprove = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`http://localhost:8000/api/users/${currentUser.id}/approve/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          approval_status: 'approved',
+          ...approvalData
+        })
+      });
+
+      if (response.ok) {
+        setSuccess(`User ${currentUser.username} approved and assigned to house!`);
+        fetchUsers();
+        fetchVacantHouses(); // Refresh vacant houses list
+        handleCloseApproveDialog();
+      } else {
+        const data = await response.json();
+        setError(JSON.stringify(data));
+      }
+    } catch (err) {
+      setError('Failed to approve user');
+    }
+  };
+
+  const handleReject = async (userId) => {
+    const reason = prompt("Enter reason for rejection:");
+    if (!reason) return;
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`http://localhost:8000/api/users/${userId}/reject/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rejection_reason: reason })
+      });
+
+      if (response.ok) {
+        setSuccess('User registration rejected');
+        fetchUsers();
+      } else {
+        setError('Failed to reject user');
+      }
+    } catch (err) {
+      setError('Failed to reject user');
     }
   };
 
   const handleResetPassword = async (userId, username) => {
-    if (!window.confirm(`Reset password for ${username}? This will generate a new temporary password and they'll need to complete their profile again.`)) {
-      return;
-    }
-
+    if (!window.confirm(`Reset password for ${username}?`)) return;
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${userId}/reset_password/`, {
@@ -210,43 +313,29 @@ function UserManagement() {
           'Content-Type': 'application/json',
         }
       });
-
       if (response.ok) {
         const data = await response.json();
-        fetchUsers();
-        setSuccess(`Password reset successfully! New temporary password: ${data.temporary_password} - Please share this with ${username}.`);
-        setError('');
-      } else {
-        setError('Failed to reset password');
+        setSuccess(`New password for ${username}: ${data.temporary_password}`);
       }
     } catch (err) {
       setError('Failed to reset password');
-      console.error('Error:', err);
     }
   };
 
   const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) {
-      return;
-    }
-
+    if (!window.confirm('Are you sure you want to delete this user?')) return;
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${userId}/`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-
       if (response.ok) {
         fetchUsers();
         setSuccess('User deleted successfully');
-        setError('');
-      } else {
-        setError('Failed to delete user');
       }
     } catch (err) {
       setError('Failed to delete user');
-      console.error('Error:', err);
     }
   };
 
@@ -260,10 +349,10 @@ function UserManagement() {
     }
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    setSuccess('Password copied to clipboard!');
-  };
+  // Filter users based on tab
+  const allUsers = users;
+  const pendingUsers = users.filter(u => u.approval_status === 'pending');
+  const displayedUsers = tabValue === 0 ? allUsers : pendingUsers;
 
   if (loading) {
     return (
@@ -288,175 +377,125 @@ function UserManagement() {
             Add User
           </Button>
         </Box>
-        <Typography variant="body2" color="text.secondary">
-          Total Users: {users.length}
-        </Typography>
+        
+        <Paper sx={{ mt: 2, mb: 2 }}>
+          <Tabs value={tabValue} onChange={handleTabChange} indicatorColor="primary" textColor="primary">
+            <Tab label="All Users" />
+            <Tab 
+              label={
+                <Box display="flex" alignItems="center">
+                  Pending Approvals
+                  {pendingUsers.length > 0 && (
+                    <Chip 
+                      label={pendingUsers.length} 
+                      color="error" 
+                      size="small" 
+                      sx={{ ml: 1, height: 20 }} 
+                    />
+                  )}
+                </Box>
+              } 
+            />
+          </Tabs>
+        </Paper>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell><strong>Name</strong></TableCell>
-              <TableCell><strong>Username</strong></TableCell>
-              <TableCell><strong>Email</strong></TableCell>
-              <TableCell><strong>Phone</strong></TableCell>
               <TableCell><strong>Role</strong></TableCell>
-              <TableCell><strong>Specialization</strong></TableCell>
-              <TableCell><strong>Profile Complete</strong></TableCell>
+              <TableCell><strong>Status</strong></TableCell>
+              <TableCell><strong>Email Verified</strong></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.map((user) => (
-              <TableRow key={user.id} hover>
-                <TableCell>{user.first_name} {user.last_name}</TableCell>
-                <TableCell>{user.username}</TableCell>
-                <TableCell>{user.email || '-'}</TableCell>
-                <TableCell>{user.phone || '-'}</TableCell>
-                <TableCell>
-                  <Chip 
-                    label={user.role.replace('_', ' ').toUpperCase()} 
-                    color={getRoleColor(user.role)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  {user.specialization ? (
-                    <Chip 
-                      label={user.specialization.replace('_', ' ').toUpperCase()} 
-                      size="small"
-                      variant="outlined"
-                    />
-                  ) : '-'}
-                </TableCell>
-                <TableCell>
-                  {user.profile_completed ? (
-                    <CheckCircleIcon color="success" />
-                  ) : (
-                    <CancelIcon color="warning" />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <IconButton 
-                    size="small" 
-                    color="primary"
-                    onClick={() => handleOpenDialog(user)}
-                    title="Edit User"
-                  >
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton 
-                    size="small" 
-                    color="warning"
-                    onClick={() => handleResetPassword(user.id, user.username)}
-                    title="Reset Password"
-                  >
-                    <LockResetIcon />
-                  </IconButton>
-                  <IconButton 
-                    size="small" 
-                    color="error"
-                    onClick={() => handleDelete(user.id)}
-                    title="Delete User"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
+            {displayedUsers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} align="center">No users found</TableCell>
               </TableRow>
-            ))}
+            ) : (
+              displayedUsers.map((user) => (
+                <TableRow key={user.id} hover>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="bold">{user.first_name} {user.last_name}</Typography>
+                    <Typography variant="caption" color="textSecondary">{user.email}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={user.role.toUpperCase()} color={getRoleColor(user.role)} size="small" />
+                  </TableCell>
+                  <TableCell>
+                    {user.approval_status === 'approved' ? (
+                      <Chip label="APPROVED" color="success" size="small" variant="outlined" />
+                    ) : user.approval_status === 'rejected' ? (
+                      <Chip label="REJECTED" color="error" size="small" variant="outlined" />
+                    ) : (
+                      <Chip label="PENDING" color="warning" size="small" />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {user.email_verified ? <CheckCircleIcon color="success" fontSize="small"/> : <CancelIcon color="disabled" fontSize="small"/>}
+                  </TableCell>
+                  <TableCell>
+                    {/* Actions depend on Tab */}
+                    {tabValue === 1 ? (
+                      <>
+                        <Button 
+                          size="small" 
+                          variant="contained" 
+                          color="success" 
+                          startIcon={<ThumbUpIcon />}
+                          onClick={() => handleOpenApproveDialog(user)}
+                          sx={{ mr: 1 }}
+                        >
+                          Approve
+                        </Button>
+                        <Button 
+                          size="small" 
+                          variant="outlined" 
+                          color="error" 
+                          startIcon={<ThumbDownIcon />}
+                          onClick={() => handleReject(user.id)}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(user)}><EditIcon /></IconButton>
+                        <IconButton size="small" color="warning" onClick={() => handleResetPassword(user.id, user.username)}><LockResetIcon /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => handleDelete(user.id)}><DeleteIcon /></IconButton>
+                      </>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
 
+      {/* Add/Edit User Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle>
-          {editMode ? 'Edit User' : 'Add New User'}
-        </DialogTitle>
+        <DialogTitle>{editMode ? 'Edit User' : 'Add New User'}</DialogTitle>
         <DialogContent>
-          {!editMode && !generatedPassword && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              A random temporary password will be generated automatically. User will change it on first login.
-            </Alert>
-          )}
-          
           {generatedPassword && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              <Typography variant="body1" gutterBottom>
-                <strong>User created successfully!</strong>
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                Temporary Password: <strong>{generatedPassword}</strong>
-              </Typography>
-              <Button 
-                size="small" 
-                variant="outlined" 
-                onClick={() => copyToClipboard(generatedPassword)}
-                sx={{ mt: 1 }}
-              >
-                Copy Password
-              </Button>
-              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-                ⚠️ Please share this password with the user. It won't be shown again!
-              </Typography>
+              Temporary Password: <strong>{generatedPassword}</strong>
             </Alert>
           )}
-          
           <Box sx={{ mt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="First Name"
-                  name="first_name"
-                  value={formData.first_name}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Last Name"
-                  name="last_name"
-                  value={formData.last_name}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Username"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                  disabled={editMode}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  select
-                  label="Role"
-                  name="role"
-                  value={formData.role}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                >
+              <Grid item xs={6}><TextField label="First Name" name="first_name" value={formData.first_name} onChange={handleInputChange} fullWidth /></Grid>
+              <Grid item xs={6}><TextField label="Last Name" name="last_name" value={formData.last_name} onChange={handleInputChange} fullWidth /></Grid>
+              <Grid item xs={6}><TextField label="Username" name="username" value={formData.username} onChange={handleInputChange} fullWidth disabled={editMode} /></Grid>
+              <Grid item xs={6}>
+                <TextField select label="Role" name="role" value={formData.role} onChange={handleInputChange} fullWidth>
                   <MenuItem value="estate_admin">Estate Admin</MenuItem>
                   <MenuItem value="technician">Technician</MenuItem>
                   <MenuItem value="tenant">Tenant</MenuItem>
@@ -465,40 +504,99 @@ function UserManagement() {
               </Grid>
               {formData.role === 'technician' && (
                 <Grid item xs={12}>
-                  <TextField
-                    select
-                    label="Specialization"
-                    name="specialization"
-                    value={formData.specialization}
-                    onChange={handleInputChange}
-                    required
-                    fullWidth
-                  >
+                  <TextField select label="Specialization" name="specialization" value={formData.specialization} onChange={handleInputChange} fullWidth>
                     <MenuItem value="plumbing">Plumbing</MenuItem>
                     <MenuItem value="electrical">Electrical</MenuItem>
                     <MenuItem value="structural">Structural</MenuItem>
                     <MenuItem value="pest_control">Pest Control</MenuItem>
-                    <MenuItem value="general">General Maintenance</MenuItem>
+                    <MenuItem value="general">General</MenuItem>
                   </TextField>
                 </Grid>
               )}
-              <Grid item xs={12}>
-                <Alert severity="info">
-                  Email, Phone, and ID Number are optional. Users will add these on first login.
-                </Alert>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog}>Close</Button>
+          {!generatedPassword && <Button onClick={handleSubmit} variant="contained">{editMode ? 'Update' : 'Create'}</Button>}
+        </DialogActions>
+      </Dialog>
+
+      {/* Approval & House Assignment Dialog */}
+      <Dialog open={openApproveDialog} onClose={handleCloseApproveDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Approve Tenant & Assign House</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info">
+              Approving <strong>{currentUser?.first_name} {currentUser?.last_name}</strong>. Please assign a vacant house.
+            </Alert>
+            
+            <TextField
+              select
+              label="Assign House"
+              name="house_id"
+              value={approvalData.house_id}
+              onChange={handleApprovalInputChange}
+              fullWidth
+              required
+            >
+              {vacantHouses.length === 0 ? (
+                <MenuItem disabled>No vacant houses available</MenuItem>
+              ) : (
+                vacantHouses.map((house) => (
+                  <MenuItem key={house.id} value={house.id}>
+                    {house.house_number} ({house.house_type}) - KES {house.rent_amount}
+                  </MenuItem>
+                ))
+              )}
+            </TextField>
+
+            <TextField
+              label="Move-in Date"
+              name="move_in_date"
+              type="date"
+              value={approvalData.move_in_date}
+              onChange={handleApprovalInputChange}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Contract Start"
+                  name="contract_start"
+                  type="date"
+                  value={approvalData.contract_start}
+                  onChange={handleApprovalInputChange}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Contract End"
+                  name="contract_end"
+                  type="date"
+                  value={approvalData.contract_end}
+                  onChange={handleApprovalInputChange}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
               </Grid>
             </Grid>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>
-            {generatedPassword ? 'Close' : 'Cancel'}
+          <Button onClick={handleCloseApproveDialog}>Cancel</Button>
+          <Button 
+            onClick={handleApprove} 
+            variant="contained" 
+            color="success"
+            disabled={!approvalData.house_id}
+          >
+            Approve & Assign
           </Button>
-          {!generatedPassword && (
-            <Button onClick={handleSubmit} variant="contained">
-              {editMode ? 'Update' : 'Create User'}
-            </Button>
-          )}
         </DialogActions>
       </Dialog>
     </Container>
