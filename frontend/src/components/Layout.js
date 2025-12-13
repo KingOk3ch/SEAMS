@@ -1,5 +1,21 @@
 import React, { useState } from 'react';
-import { Box, AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItem, ListItemIcon, ListItemText, ListItemButton, Avatar, Menu, MenuItem, Divider } from '@mui/material';
+import { 
+  Box, 
+  AppBar, 
+  Toolbar, 
+  Typography, 
+  IconButton, 
+  Drawer, 
+  List, 
+  ListItem, 
+  ListItemIcon, 
+  ListItemText, 
+  ListItemButton, 
+  Avatar, 
+  Menu, 
+  MenuItem, 
+  Divider 
+} from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import HomeIcon from '@mui/icons-material/Home';
@@ -9,8 +25,8 @@ import PaymentIcon from '@mui/icons-material/Payment';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle'; // Imported Icon
-import { useNavigate } from 'react-router-dom';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const drawerWidth = 240;
 
@@ -18,7 +34,9 @@ function Layout({ children, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const navigate = useNavigate();
+  const location = useLocation();
   
+  // Get the latest user data from local storage
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   const handleDrawerToggle = () => {
@@ -37,6 +55,17 @@ function Layout({ children, onLogout }) {
     handleProfileClose();
     onLogout();
     navigate('/');
+  };
+
+  // Helper function to get the full profile image URL
+  const getProfileImageUrl = () => {
+    if (!user.profile_picture) return undefined;
+    // If the URL is already absolute, use it as is
+    if (user.profile_picture.startsWith('http')) {
+      return user.profile_picture;
+    }
+    // Otherwise, prepend the backend URL
+    return `http://localhost:8000${user.profile_picture}`;
   };
 
   const getMenuItems = () => {
@@ -71,30 +100,41 @@ function Layout({ children, onLogout }) {
   };
 
   const drawer = (
-    <Box>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Toolbar>
-        <Typography variant="h6" noWrap component="div">
+        <Typography variant="h6" noWrap component="div" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
           SEAMS
         </Typography>
       </Toolbar>
       <Divider />
-      <List>
+      
+      {/* Main Menu Items */}
+      <List sx={{ flexGrow: 1 }}>
         {getMenuItems().map((item) => (
           <ListItem key={item.text} disablePadding>
-            <ListItemButton onClick={() => navigate(item.path)}>
-              <ListItemIcon>{item.icon}</ListItemIcon>
+            <ListItemButton 
+              onClick={() => navigate(item.path)}
+              selected={location.pathname === item.path}
+            >
+              <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
+                {item.icon}
+              </ListItemIcon>
               <ListItemText primary={item.text} />
             </ListItemButton>
           </ListItem>
         ))}
       </List>
       
-      {/* SEPARATOR AND PROFILE LINK */}
       <Divider />
+      
+      {/* Profile Link Pinned to Bottom */}
       <List>
         <ListItem disablePadding>
-          <ListItemButton onClick={() => navigate('/profile')}>
-            <ListItemIcon>
+          <ListItemButton 
+            onClick={() => navigate('/profile')}
+            selected={location.pathname === '/profile'}
+          >
+            <ListItemIcon sx={{ color: location.pathname === '/profile' ? 'primary.main' : 'inherit' }}>
               <AccountCircleIcon />
             </ListItemIcon>
             <ListItemText primary="My Profile" />
@@ -126,9 +166,15 @@ function Layout({ children, onLogout }) {
             Staff Estates Administration & Management System
           </Typography>
           
+          {/* Top Right Avatar Menu */}
           <IconButton onClick={handleProfileClick} sx={{ ml: 2 }}>
-            <Avatar sx={{ bgcolor: 'secondary.main' }}>
-              {user.first_name?.[0] || user.username?.[0] || 'U'}
+            {/* Use src for image, fallback to initial if no image exists */}
+            <Avatar 
+              src={getProfileImageUrl()} 
+              sx={{ bgcolor: 'secondary.main' }}
+            >
+              {/* Show initial only if there is no profile picture URL */}
+              {!getProfileImageUrl() && (user.first_name?.[0] || user.username?.[0] || 'U')}
             </Avatar>
           </IconButton>
           <Menu
@@ -137,7 +183,7 @@ function Layout({ children, onLogout }) {
             onClose={handleProfileClose}
           >
             <MenuItem disabled>
-              <Typography variant="body2">
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
                 {user.first_name} {user.last_name}
               </Typography>
             </MenuItem>

@@ -20,10 +20,9 @@ function Profile() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
-  // We use a timestamp to force the browser to reload the image
+  // Cache buster timestamp
   const [imageHash, setImageHash] = useState(Date.now());
 
-  // Profile Data
   const [profileData, setProfileData] = useState({
     username: '',
     email: '',
@@ -38,7 +37,6 @@ function Profile() {
   const [previewImage, setPreviewImage] = useState(null);
   const [newProfileImage, setNewProfileImage] = useState(null);
 
-  // Password Data
   const [passwordData, setPasswordData] = useState({
     old_password: '',
     new_password: '',
@@ -68,7 +66,6 @@ function Profile() {
           specialization: data.specialization || '',
           profile_picture: data.profile_picture
         });
-        // Force image refresh
         setImageHash(Date.now());
       }
     } catch (err) {
@@ -106,14 +103,12 @@ function Profile() {
       const token = localStorage.getItem('access_token');
       const formData = new FormData();
       
-      // Append text fields
       Object.keys(profileData).forEach(key => {
         if (key !== 'profile_picture' && profileData[key] !== null) {
           formData.append(key, profileData[key]);
         }
       });
 
-      // Append image only if a new one was selected
       if (newProfileImage) {
         formData.append('profile_picture', newProfileImage);
       }
@@ -129,10 +124,11 @@ function Profile() {
       if (response.ok) {
         setSuccess('Profile updated successfully');
         localStorage.setItem('user', JSON.stringify(data.user));
-        // Refresh data to show new image from server
-        fetchProfile();
+        
+        // Clear previews and re-fetch to get the server URL
         setNewProfileImage(null);
         setPreviewImage(null);
+        fetchProfile(); 
       } else {
         const errorMsg = Object.values(data).flat().join(', ');
         setError(errorMsg || 'Failed to update profile');
@@ -183,6 +179,20 @@ function Profile() {
     }
   };
 
+  // Helper to construct the correct image URL
+  const getProfileImageUrl = () => {
+    if (previewImage) return previewImage;
+    if (!profileData.profile_picture) return undefined;
+    
+    // Check if the URL is already absolute (contains http)
+    if (profileData.profile_picture.startsWith('http')) {
+      return `${profileData.profile_picture}?t=${imageHash}`;
+    }
+    
+    // If relative, append localhost
+    return `http://localhost:8000${profileData.profile_picture}?t=${imageHash}`;
+  };
+
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
@@ -194,7 +204,6 @@ function Profile() {
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 3 }}>{success}</Alert>}
 
-      {/* --- SECTION 1: PERSONAL DETAILS & PHOTO --- */}
       <Paper sx={{ p: 4, mb: 4 }}>
         <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <Person sx={{ mr: 1 }} /> Personal Details
@@ -203,12 +212,7 @@ function Profile() {
         <form onSubmit={handleSaveProfile}>
           <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
             <Avatar
-              src={
-                previewImage || 
-                (profileData.profile_picture 
-                  ? `http://localhost:8000${profileData.profile_picture}?t=${imageHash}` 
-                  : undefined)
-              }
+              src={getProfileImageUrl()}
               sx={{ width: 120, height: 120, mb: 2, border: '4px solid white', boxShadow: 3 }}
             />
             <Button variant="outlined" component="label" startIcon={<PhotoCamera />}>
@@ -218,7 +222,6 @@ function Profile() {
           </Box>
 
           <Grid container spacing={3}>
-            {/* Read-Only Fields */}
             <Grid item xs={12} sm={6}>
               <TextField 
                 label="First Name" 
@@ -240,7 +243,6 @@ function Profile() {
               />
             </Grid>
             
-            {/* Editable Fields */}
             <Grid item xs={12} sm={6}>
               <TextField 
                 label="Username" 
@@ -294,7 +296,6 @@ function Profile() {
         </form>
       </Paper>
 
-      {/* --- SECTION 2: PASSWORD CHANGE --- */}
       <Paper sx={{ p: 4 }}>
         <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <Lock sx={{ mr: 1 }} /> Change Password
