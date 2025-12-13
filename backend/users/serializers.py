@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
+from .models import Notification
 import random
 import string
 
@@ -107,7 +108,7 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
             role='tenant',
             approval_status='pending',
             email_verified=False,
-            email_verification_token=code, # Saving the 6-digit code here
+            email_verification_token=code,
             is_active=False,
             profile_completed=False,
         )
@@ -141,3 +142,8 @@ class UserApprovalSerializer(serializers.ModelSerializer):
         
         instance.save()
         return instance
+    #Notification Serializer
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'message', 'is_read', 'created_at', 'link']

@@ -1,31 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Box, 
-  AppBar, 
-  Toolbar, 
-  Typography, 
-  IconButton, 
-  Drawer, 
-  List, 
-  ListItem, 
-  ListItemIcon, 
-  ListItemText, 
-  ListItemButton, 
-  Avatar, 
-  Menu, 
-  MenuItem, 
-  Divider 
+  Box, AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItem, 
+  ListItemIcon, ListItemText, ListItemButton, Avatar, Menu, MenuItem, Divider, 
+  Badge, Popover 
 } from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import HomeIcon from '@mui/icons-material/Home';
-import PeopleIcon from '@mui/icons-material/People';
-import BuildIcon from '@mui/icons-material/Build';
-import PaymentIcon from '@mui/icons-material/Payment';
-import DescriptionIcon from '@mui/icons-material/Description';
-import LogoutIcon from '@mui/icons-material/Logout';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import {
+  Menu as MenuIcon, Dashboard, Home, People, Build, Payment, Description, 
+  Logout, PersonAdd, AccountCircle, Notifications
+} from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const drawerWidth = 240;
@@ -33,11 +15,51 @@ const drawerWidth = 240;
 function Layout({ children, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [notifAnchorEl, setNotifAnchorEl] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Get the latest user data from local storage
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+  useEffect(() => {
+    fetchNotifications();
+    // Poll every 30 seconds for new notifications
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+      
+      const response = await fetch('http://localhost:8000/api/notifications/', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data);
+        setUnreadCount(data.filter(n => !n.is_read).length);
+      }
+    } catch (err) {
+      console.error("Failed to fetch notifications");
+    }
+  };
+
+  const handleMarkAsRead = async (id) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      await fetch(`http://localhost:8000/api/notifications/${id}/mark_read/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      fetchNotifications();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -57,45 +79,34 @@ function Layout({ children, onLogout }) {
     navigate('/');
   };
 
-  // Helper function to get the full profile image URL
   const getProfileImageUrl = () => {
     if (!user.profile_picture) return undefined;
-    // If the URL is already absolute, use it as is
-    if (user.profile_picture.startsWith('http')) {
-      return user.profile_picture;
-    }
-    // Otherwise, prepend the backend URL
+    if (user.profile_picture.startsWith('http')) return user.profile_picture;
     return `http://localhost:8000${user.profile_picture}`;
   };
 
   const getMenuItems = () => {
     const role = user.role;
-
     if (role === 'estate_admin') {
       return [
-        { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-        { text: 'Houses', icon: <HomeIcon />, path: '/houses' },
-        { text: 'Tenants', icon: <PeopleIcon />, path: '/tenants' },
-        { text: 'Users', icon: <PersonAddIcon />, path: '/users' },
-        { text: 'Contracts', icon: <DescriptionIcon />, path: '/contracts' },
-        { text: 'Payments', icon: <PaymentIcon />, path: '/payments' },
-        { text: 'Maintenance', icon: <BuildIcon />, path: '/maintenance' },
+        { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
+        { text: 'Houses', icon: <Home />, path: '/houses' },
+        { text: 'Tenants', icon: <People />, path: '/tenants' },
+        { text: 'Users', icon: <PersonAdd />, path: '/users' },
+        { text: 'Contracts', icon: <Description />, path: '/contracts' },
+        { text: 'Payments', icon: <Payment />, path: '/payments' },
+        { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
       ];
     }
-
     if (role === 'technician') {
-      return [
-        { text: 'Maintenance Requests', icon: <BuildIcon />, path: '/maintenance' },
-      ];
+      return [{ text: 'Maintenance Requests', icon: <Build />, path: '/maintenance' }];
     }
-
     if (role === 'tenant') {
       return [
-        { text: 'My Dashboard', icon: <DashboardIcon />, path: '/tenant-dashboard' },
-        { text: 'Maintenance', icon: <BuildIcon />, path: '/maintenance' },
+        { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' },
+        { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
       ];
     }
-
     return [];
   };
 
@@ -107,13 +118,11 @@ function Layout({ children, onLogout }) {
         </Typography>
       </Toolbar>
       <Divider />
-      
-      {/* Main Menu Items */}
       <List sx={{ flexGrow: 1 }}>
         {getMenuItems().map((item) => (
           <ListItem key={item.text} disablePadding>
             <ListItemButton 
-              onClick={() => navigate(item.path)}
+              onClick={() => { navigate(item.path); setMobileOpen(false); }}
               selected={location.pathname === item.path}
             >
               <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
@@ -124,18 +133,12 @@ function Layout({ children, onLogout }) {
           </ListItem>
         ))}
       </List>
-      
       <Divider />
-      
-      {/* Profile Link Pinned to Bottom */}
       <List>
         <ListItem disablePadding>
-          <ListItemButton 
-            onClick={() => navigate('/profile')}
-            selected={location.pathname === '/profile'}
-          >
+          <ListItemButton onClick={() => { navigate('/profile'); setMobileOpen(false); }} selected={location.pathname === '/profile'}>
             <ListItemIcon sx={{ color: location.pathname === '/profile' ? 'primary.main' : 'inherit' }}>
-              <AccountCircleIcon />
+              <AccountCircle />
             </ListItemIcon>
             <ListItemText primary="My Profile" />
           </ListItemButton>
@@ -146,101 +149,83 @@ function Layout({ children, onLogout }) {
 
   return (
     <Box sx={{ display: 'flex' }}>
-      <AppBar
-        position="fixed"
-        sx={{
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          ml: { sm: `${drawerWidth}px` },
-        }}
-      >
+      <AppBar position="fixed" sx={{ width: { sm: `calc(100% - ${drawerWidth}px)` }, ml: { sm: `${drawerWidth}px` } }}>
         <Toolbar>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: 'none' } }}
-          >
+          <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2, display: { sm: 'none' } }}>
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             Staff Estates Administration & Management System
           </Typography>
           
-          {/* Top Right Avatar Menu */}
-          <IconButton onClick={handleProfileClick} sx={{ ml: 2 }}>
-            {/* Use src for image, fallback to initial if no image exists */}
-            <Avatar 
-              src={getProfileImageUrl()} 
-              sx={{ bgcolor: 'secondary.main' }}
-            >
-              {/* Show initial only if there is no profile picture URL */}
-              {!getProfileImageUrl() && (user.first_name?.[0] || user.username?.[0] || 'U')}
+          {/* NOTIFICATION BELL */}
+          <IconButton color="inherit" onClick={(e) => setNotifAnchorEl(e.currentTarget)}>
+            <Badge badgeContent={unreadCount} color="error">
+              <Notifications />
+            </Badge>
+          </IconButton>
+
+          {/* PROFILE AVATAR */}
+          <IconButton onClick={(e) => setAnchorEl(e.currentTarget)} sx={{ ml: 2 }}>
+            <Avatar src={getProfileImageUrl()} sx={{ bgcolor: 'secondary.main' }}>
+              {!getProfileImageUrl() && (user.first_name?.[0] || 'U')}
             </Avatar>
           </IconButton>
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleProfileClose}
-          >
-            <MenuItem disabled>
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                {user.first_name} {user.last_name}
-              </Typography>
-            </MenuItem>
-            <MenuItem disabled>
-              <Typography variant="caption" color="text.secondary">
-                {user.role?.replace('_', ' ').toUpperCase()}
-              </Typography>
-            </MenuItem>
+
+          {/* Profile Menu */}
+          <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
+            <MenuItem disabled><Typography variant="body2" fontWeight="bold">{user.first_name} {user.last_name}</Typography></MenuItem>
             <Divider />
-            <MenuItem onClick={() => { handleProfileClose(); navigate('/profile'); }}>
-              <ListItemIcon><AccountCircleIcon fontSize="small" /></ListItemIcon>
-              My Profile
-            </MenuItem>
-            <MenuItem onClick={handleLogout}>
-              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
-              Logout
-            </MenuItem>
+            <MenuItem onClick={() => { setAnchorEl(null); navigate('/profile'); }}><ListItemIcon><AccountCircle fontSize="small" /></ListItemIcon>My Profile</MenuItem>
+            <MenuItem onClick={handleLogout}><ListItemIcon><Logout fontSize="small" /></ListItemIcon>Logout</MenuItem>
           </Menu>
+
+          {/* Notifications Popover */}
+          <Popover
+            open={Boolean(notifAnchorEl)}
+            anchorEl={notifAnchorEl}
+            onClose={() => setNotifAnchorEl(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <Box sx={{ width: 320, maxHeight: 400, overflow: 'auto' }}>
+              <Typography variant="h6" sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>Notifications</Typography>
+              <List>
+                {notifications.length === 0 ? (
+                  <ListItem><ListItemText primary="No notifications" secondary="You're all caught up!" /></ListItem>
+                ) : (
+                  notifications.map((notif) => (
+                    <ListItem 
+                      key={notif.id} 
+                      button 
+                      alignItems="flex-start"
+                      onClick={() => { handleMarkAsRead(notif.id); if(notif.link) navigate(notif.link); }}
+                      sx={{ bgcolor: notif.is_read ? 'transparent' : 'action.hover' }}
+                    >
+                      <ListItemText 
+                        primary={notif.message} 
+                        secondary={new Date(notif.created_at).toLocaleDateString()}
+                        primaryTypographyProps={{ variant: 'body2', fontWeight: notif.is_read ? 'normal' : 'bold' }}
+                      />
+                    </ListItem>
+                  ))
+                )}
+              </List>
+            </Box>
+          </Popover>
         </Toolbar>
       </AppBar>
 
-      <Box
-        component="nav"
-        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-      >
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: 'block', sm: 'none' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-          }}
-        >
+      <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
+        <Drawer variant="temporary" open={mobileOpen} onClose={handleDrawerToggle} ModalProps={{ keepMounted: true }} sx={{ display: { xs: 'block', sm: 'none' }, '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth } }}>
           {drawer}
         </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-          }}
-          open
-        >
+        <Drawer variant="permanent" sx={{ display: { xs: 'none', sm: 'block' }, '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth } }} open>
           {drawer}
         </Drawer>
       </Box>
 
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-        }}
-      >
+      <Box component="main" sx={{ flexGrow: 1, p: 3, width: { sm: `calc(100% - ${drawerWidth}px)` } }}>
         <Toolbar />
         {children}
       </Box>

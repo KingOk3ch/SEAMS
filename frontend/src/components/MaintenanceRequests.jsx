@@ -22,7 +22,9 @@ import {
   MenuItem,
   IconButton,
   ImageList,
-  ImageListItem
+  ImageListItem,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -39,6 +41,10 @@ function MaintenanceRequests() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
+  // Responsive Hooks
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('md')); // True on mobile screens
+
   // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
@@ -375,7 +381,14 @@ function MaintenanceRequests() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ mb: 4 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
+        {/* RESPONSIVE HEADER: Flex column on mobile, Row on desktop */}
+        <Box 
+          display="flex" 
+          flexDirection={{ xs: 'column', sm: 'row' }} 
+          justifyContent="space-between" 
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          gap={2}
+        >
           <Typography variant="h4" gutterBottom>
             {userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}
           </Typography>
@@ -392,8 +405,9 @@ function MaintenanceRequests() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      <TableContainer component={Paper}>
-        <Table>
+      {/* RESPONSIVE TABLE CONTAINER: overflowX auto enables scrolling on mobile */}
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }} aria-label="maintenance table">
           <TableHead>
             <TableRow>
               <TableCell><strong>ID</strong></TableCell>
@@ -426,17 +440,19 @@ function MaintenanceRequests() {
                   <TableCell>{formatDate(request.created_at)}</TableCell>
                   {userRole !== 'tenant' && <TableCell>{request.assigned_to_name || 'Unassigned'}</TableCell>}
                   <TableCell>
-                    {/* Admin Actions */}
-                    {userRole === 'estate_admin' && (
-                      <>
-                        <IconButton size="small" color="primary" onClick={() => handleOpenAssignDialog(request)} title="Assign"><AssignmentIcon /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => handleDelete(request.id)} title="Delete"><DeleteIcon /></IconButton>
-                      </>
-                    )}
-                    {/* View/Edit Action - For Everyone */}
-                    {(userRole === 'technician' || userRole === 'tenant' || userRole === 'estate_admin') && (
-                       <IconButton size="small" color="primary" onClick={() => handleOpenDialog(request)} title="View/Edit"><EditIcon /></IconButton>
-                    )}
+                    <Box display="flex">
+                      {/* Admin Actions */}
+                      {userRole === 'estate_admin' && (
+                        <>
+                          <IconButton size="small" color="primary" onClick={() => handleOpenAssignDialog(request)} title="Assign"><AssignmentIcon /></IconButton>
+                          <IconButton size="small" color="error" onClick={() => handleDelete(request.id)} title="Delete"><DeleteIcon /></IconButton>
+                        </>
+                      )}
+                      {/* View/Edit Action - For Everyone */}
+                      {(userRole === 'technician' || userRole === 'tenant' || userRole === 'estate_admin') && (
+                         <IconButton size="small" color="primary" onClick={() => handleOpenDialog(request)} title="View/Edit"><EditIcon /></IconButton>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))
@@ -445,8 +461,14 @@ function MaintenanceRequests() {
         </Table>
       </TableContainer>
 
-      {/* Add/Edit/View Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      {/* RESPONSIVE DIALOG: Fullscreen on mobile */}
+      <Dialog 
+        open={openDialog} 
+        onClose={handleCloseDialog} 
+        fullScreen={fullScreen}
+        maxWidth="sm" 
+        fullWidth
+      >
         <DialogTitle>
           {editMode 
             ? (userRole === 'technician' ? 'Update Status & View' : 'Request Details')
@@ -479,7 +501,7 @@ function MaintenanceRequests() {
 
             {/* STATUS & PRIORITY */}
             {userRole !== 'tenant' && (
-              <Box sx={{ display: 'flex', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
                 <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician'}>
                   <MenuItem value="low">Low</MenuItem>
                   <MenuItem value="medium">Medium</MenuItem>

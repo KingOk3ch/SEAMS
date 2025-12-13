@@ -11,8 +11,10 @@ from .serializers import (
     UserRegistrationSerializer, 
     ProfileCompletionSerializer,
     TenantRegistrationSerializer,
-    UserApprovalSerializer
+    UserApprovalSerializer,
+    NotificationSerializer
 )
+from .models import Notification
 import random
 import string
 
@@ -337,3 +339,22 @@ def verify_email(request):
         return Response({
             'error': 'Invalid verification code or email'
         }, status=status.HTTP_400_BAD_REQUEST)
+    #Notification Viewset
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(recipient=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({'status': 'marked as read'})
+        
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        self.get_queryset().update(is_read=True)
+        return Response({'status': 'all marked as read'})
