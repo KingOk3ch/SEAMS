@@ -35,8 +35,10 @@ import {
   Check,
   Close,
   NotificationsActive,
-  Warning
+  Warning,
+  ArrowForward
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom'; // <--- IMPORT THIS
 
 function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -50,6 +52,8 @@ function Dashboard() {
   
   // UI States
   const [expandApprovals, setExpandApprovals] = useState(false);
+
+  const navigate = useNavigate(); // <--- INITIALIZE NAVIGATION
 
   useEffect(() => {
     fetchDashboardData();
@@ -111,9 +115,7 @@ function Dashboard() {
   // --- Handlers ---
 
   const handleUserAction = async (userId, action) => {
-    // Action is either 'approve' or 'reject'
     let body = {};
-    
     if (action === 'approve') {
       if (!window.confirm('Approve this user? They will be able to log in immediately.')) return;
       body = { approval_status: 'approved' };
@@ -136,7 +138,7 @@ function Dashboard() {
 
       if (response.ok) {
         setActionMessage({ type: 'success', text: `User ${action}d successfully` });
-        fetchDashboardData(); // Refresh data
+        fetchDashboardData(); 
       } else {
         const data = await response.json();
         setActionMessage({ type: 'error', text: data.error || `Failed to ${action} user` });
@@ -144,8 +146,6 @@ function Dashboard() {
     } catch (err) {
       setActionMessage({ type: 'error', text: 'Network error occurred' });
     }
-    
-    // Clear message after 3 seconds
     setTimeout(() => setActionMessage({ type: '', text: '' }), 3000);
   };
 
@@ -178,8 +178,12 @@ function Dashboard() {
         height: '100%', 
         position: 'relative',
         cursor: onClick ? 'pointer' : 'default',
-        transition: '0.3s',
-        '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: 4 } : {}
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': onClick ? { 
+          transform: 'translateY(-4px)', 
+          boxShadow: '0 12px 20px -10px rgba(0,0,0,0.2)',
+          borderColor: color 
+        } : {}
       }}
       onClick={onClick}
     >
@@ -188,11 +192,15 @@ function Dashboard() {
       )}
       <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography color="text.secondary" variant="body2" gutterBottom>{title}</Typography>
-          <Typography variant="h4" fontWeight="bold">{value}</Typography>
-          <Typography variant="caption" color="text.secondary">{subtitle}</Typography>
+          <Typography color="text.secondary" variant="body2" gutterBottom textTransform="uppercase" fontWeight="bold" fontSize="0.75rem">
+            {title}
+          </Typography>
+          <Typography variant="h4" fontWeight="bold" sx={{ mb: 0.5 }}>{value}</Typography>
+          <Typography variant="caption" color="text.secondary" display="flex" alignItems="center" gap={0.5}>
+            {subtitle}
+          </Typography>
         </Box>
-        <Box sx={{ color: color, p: 1, borderRadius: 2, bgcolor: `${color}20` }}>
+        <Box sx={{ color: color, p: 1.5, borderRadius: 3, bgcolor: `${color}15` }}>
           {icon}
         </Box>
       </CardContent>
@@ -218,6 +226,7 @@ function Dashboard() {
             subtitle={`${stats.houses.occupied} Occupied • ${stats.houses.vacant} Vacant`}
             icon={<Home fontSize="large" />} 
             color="#1976d2" 
+            onClick={() => navigate('/houses')} // <--- NAVIGATION
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -227,6 +236,7 @@ function Dashboard() {
             subtitle="Active Leases"
             icon={<People fontSize="large" />} 
             color="#2e7d32" 
+            onClick={() => navigate('/tenants')} // <--- NAVIGATION
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -237,6 +247,7 @@ function Dashboard() {
             icon={<Build fontSize="large" />} 
             color="#ed6c02"
             hasBadge={stats.maintenance.pending > 0}
+            onClick={() => navigate('/maintenance')} // <--- NAVIGATION
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -247,7 +258,7 @@ function Dashboard() {
             icon={<HourglassEmpty fontSize="large" />} 
             color="#d32f2f"
             hasBadge={stats.pendingApprovalsCount > 0}
-            onClick={() => setExpandApprovals(!expandApprovals)}
+            onClick={() => setExpandApprovals(!expandApprovals)} // <--- TOGGLES WIDGET
           />
         </Grid>
       </Grid>
@@ -261,9 +272,13 @@ function Dashboard() {
               <Typography variant="h6" color="error">Pending User Registrations</Typography>
               <Chip label={stats.pendingApprovalsCount} color="error" size="small" />
             </Box>
-            <IconButton onClick={() => setExpandApprovals(!expandApprovals)}>
-              {expandApprovals ? <ExpandLess /> : <ExpandMore />}
-            </IconButton>
+            <Box>
+                {/* Shortcuts to User Management */}
+                <Button size="small" onClick={() => navigate('/users')} sx={{ mr: 1 }}>Manage All Users</Button>
+                <IconButton onClick={() => setExpandApprovals(!expandApprovals)}>
+                {expandApprovals ? <ExpandLess /> : <ExpandMore />}
+                </IconButton>
+            </Box>
           </Box>
           
           <Collapse in={expandApprovals}>
@@ -298,7 +313,7 @@ function Dashboard() {
                           </Button>
                         </Box>
                       }
-                      sx={{ flexWrap: 'wrap' }} // Responsive list item
+                      sx={{ flexWrap: 'wrap' }}
                     >
                       <ListItemText
                         primary={
@@ -328,14 +343,12 @@ function Dashboard() {
 
       {/* --- ACTIVE MAINTENANCE (PING) TABLE --- */}
       <Paper sx={{ mb: 4, overflow: 'hidden' }}>
-        <Box p={2} bgcolor="#f5f5f5" borderBottom="1px solid #e0e0e0">
+        <Box p={2} bgcolor="#f5f5f5" borderBottom="1px solid #e0e0e0" display="flex" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" display="flex" alignItems="center" gap={1}>
             <NotificationsActive color="primary" /> 
             Active Maintenance Tasks 
-            <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
-              (Ping technicians for updates)
-            </Typography>
           </Typography>
+          <Button endIcon={<ArrowForward />} size="small" onClick={() => navigate('/maintenance')}>View All</Button>
         </Box>
         
         <TableContainer sx={{ maxHeight: 400 }}>
