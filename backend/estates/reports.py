@@ -5,11 +5,10 @@ from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth, Coalesce
 from django.utils import timezone
 from datetime import timedelta
-from .models import Payment, House, Tenant
+from .models import Payment, House, Tenant, Bill
 from maintenance.models import MaintenanceRequest
-from users.models import Notification # Import Notification model
+from users.models import Notification
 
-# --- CUSTOM PERMISSION CLASS ---
 class IsEstateAdmin(permissions.BasePermission):
     """
     Custom permission to only allow users with role='estate_admin'
@@ -30,12 +29,13 @@ class ReportsViewSet(viewsets.ViewSet):
         current_month = today.month
         current_year = today.year
 
-        # 1. Income
-        total_income = Payment.objects.aggregate(total=Sum('amount'))['total'] or 0
+        # 1. Income (Only Verified)
+        total_income = Payment.objects.filter(is_verified=True).aggregate(total=Sum('amount'))['total'] or 0
         
         monthly_income = Payment.objects.filter(
             payment_date__month=current_month, 
-            payment_date__year=current_year
+            payment_date__year=current_year,
+            is_verified=True
         ).aggregate(total=Sum('amount'))['total'] or 0
 
         # 2. Expenses
@@ -63,8 +63,10 @@ class ReportsViewSet(viewsets.ViewSet):
     def monthly_trends(self, request):
         six_months_ago = timezone.now() - timedelta(days=180)
 
-        income_data = Payment.objects.filter(payment_date__gte=six_months_ago) \
-            .annotate(month=TruncMonth('payment_date')) \
+        income_data = Payment.objects.filter(
+            payment_date__gte=six_months_ago,
+            is_verified=True
+        ).annotate(month=TruncMonth('payment_date')) \
             .values('month') \
             .annotate(total=Sum('amount')) \
             .order_by('month')
@@ -122,9 +124,6 @@ class ReportsViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'])
     def debtors_list(self, request):
-        """
-        Returns a list of tenants who have arrears for the current month.
-        """
         today = timezone.now()
         current_month = today.month
         current_year = today.year
@@ -133,16 +132,27 @@ class ReportsViewSet(viewsets.ViewSet):
         active_tenants = Tenant.objects.filter(status='active', house__isnull=False)
         
         for tenant in active_tenants:
-            expected_rent = tenant.house.rent_amount
-            
-            paid_amount = Payment.objects.filter(
+            # 1. Expected Rent
+            rent_due = tenant.house.rent_amount
+
+            # 2. Other Bills (for this month)
+            bills_due = Bill.objects.filter(
                 tenant=tenant,
-                payment_type='rent',
                 month_for__month=current_month,
                 month_for__year=current_year
             ).aggregate(total=Sum('amount'))['total'] or 0
+
+            total_expected = rent_due + bills_due
             
-            balance = expected_rent - paid_amount
+            # 3. VERIFIED Payments only
+            paid_amount = Payment.objects.filter(
+                tenant=tenant,
+                month_for__month=current_month,
+                month_for__year=current_year,
+                is_verified=True
+            ).aggregate(total=Sum('amount'))['total'] or 0
+            
+            balance = total_expected - paid_amount
             
             if balance > 0:
                 debtors.append({
@@ -150,7 +160,8 @@ class ReportsViewSet(viewsets.ViewSet):
                     'name': f"{tenant.user.first_name} {tenant.user.last_name}",
                     'house': tenant.house.house_number,
                     'phone': tenant.user.phone or "N/A",
-                    'rent_amount': expected_rent,
+                    'rent_amount': rent_due,
+                    'bills_amount': bills_due,
                     'paid_amount': paid_amount,
                     'balance': balance
                 })
@@ -159,9 +170,6 @@ class ReportsViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def ping_debtor(self, request):
-        """
-        Sends a payment reminder notification to a specific tenant.
-        """
         tenant_id = request.data.get('tenant_id')
         if not tenant_id:
             return Response({'error': 'Tenant ID required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -170,10 +178,9 @@ class ReportsViewSet(viewsets.ViewSet):
             tenant = Tenant.objects.get(id=tenant_id)
             current_month = timezone.now().strftime('%B')
             
-            # Create Notification
             Notification.objects.create(
                 recipient=tenant.user,
-                message=f"PAYMENT REMINDER: Dear {tenant.user.first_name}, you have an outstanding rent balance for {current_month}. Please pay immediately to avoid penalties.",
+                message=f"PAYMENT REMINDER: Dear {tenant.user.first_name}, you have an outstanding balance for {current_month}. Please pay immediately.",
                 link="/tenant-dashboard"
             )
             

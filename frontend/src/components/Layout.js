@@ -96,7 +96,7 @@ function Layout({ children, onLogout }) {
         { text: 'Contracts', icon: <Description />, path: '/contracts' },
         { text: 'Payments', icon: <Payment />, path: '/payments' },
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
-        { text: 'Reports', icon: <Assessment />, path: '/reports' }, // New Reports Link
+        { text: 'Reports', icon: <Assessment />, path: '/reports' },
       ];
     }
     if (role === 'technician') {
@@ -105,6 +105,7 @@ function Layout({ children, onLogout }) {
     if (role === 'tenant') {
       return [
         { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' },
+        { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' }, // <--- NEW LINK
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
       ];
     }

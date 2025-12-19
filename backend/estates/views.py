@@ -4,9 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from datetime import date, timedelta
-from .models import House, Tenant, Contract, Payment
-from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer
-
+from .models import House, Tenant, Contract, Payment, Bill
+from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
@@ -89,3 +88,44 @@ class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            # Tenants only see their own payments
+            return Payment.objects.filter(tenant__user=user)
+        return Payment.objects.all()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        # Security Logic: Admin -> Verified, Tenant -> Pending
+        is_verified = False
+        if getattr(user, 'role', None) == 'estate_admin':
+            is_verified = True
+        serializer.save(is_verified=is_verified)
+
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        """
+        Admin action to verify a payment manually.
+        """
+        if getattr(request.user, 'role', None) != 'estate_admin':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+            
+        payment = self.get_object()
+        payment.is_verified = True
+        payment.save()
+        return Response({'status': 'verified', 'message': 'Payment verified successfully'})
+
+
+class BillViewSet(viewsets.ModelViewSet):
+    queryset = Bill.objects.all()
+    serializer_class = BillSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            # Tenant sees only their bills
+            return Bill.objects.filter(tenant__user=user)
+        return Bill.objects.all()

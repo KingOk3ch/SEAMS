@@ -105,10 +105,7 @@ class Payment(models.Model):
     payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='rent')
     reference_number = models.CharField(max_length=50, blank=True)
     month_for = models.DateField(help_text="Month this payment covers")
-    
-    # SECURITY FLAG: Ensures fake payments don't count until Admin approves
     is_verified = models.BooleanField(default=False)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -118,3 +115,29 @@ class Payment(models.Model):
     def __str__(self):
         status = "Verified" if self.is_verified else "Pending"
         return f"{self.get_payment_type_display()}: {self.tenant.user.get_full_name()} - {status}"
+
+# --- BILLS (INVOICES) ---
+class Bill(models.Model):
+    BILL_TYPE_CHOICES = [
+        ('water', 'Water Bill'),
+        ('electricity', 'Electricity Bill'),
+        ('garbage', 'Garbage Fee'),
+        ('damage', 'Damage Repair'),
+        ('penalty', 'Late Payment Penalty'),
+        ('other', 'Other'),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='bills')
+    bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    month_for = models.DateField(help_text="Month this bill applies to")
+    description = models.TextField(blank=True, null=True)
+    is_paid = models.BooleanField(default=False) # For manual tracking if needed
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'bills'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Bill: {self.get_bill_type_display()} - {self.tenant.user.get_full_name()} ({self.amount})"

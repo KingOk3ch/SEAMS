@@ -15,7 +15,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 import UserManagement from './components/UserManagement';
 import TenantRegistration from './components/TenantRegistration';
 import Profile from './components/Profile';
-import Reports from './components/Reports'; // New Import
+import Reports from './components/Reports';
+import TenantPayments from './components/TenantPayments'; // <--- NEW IMPORT
 
 const theme = createTheme({
   palette: {
@@ -160,6 +161,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['estate_admin']}>
                   <Reports />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/tenant-payments" 
+              element={
+                <ProtectedRoute allowedRoles={['tenant']}>
+                  <TenantPayments />
                 </ProtectedRoute>
               } 
             />

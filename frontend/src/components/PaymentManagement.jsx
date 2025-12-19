@@ -1,45 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Typography,
-  Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  CircularProgress,
-  Alert,
-  Chip,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  MenuItem
+  Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, CircularProgress, Alert, Chip, Button, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 
 function PaymentManagement() {
+  const [tabIndex, setTabIndex] = useState(0); // 0 = Payments, 1 = Bills
   const [payments, setPayments] = useState([]);
+  const [bills, setBills] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Dialog State
-  const [openDialog, setOpenDialog] = useState(false);
+  // Dialogs
+  const [openPayDialog, setOpenPayDialog] = useState(false);
+  const [openBillDialog, setOpenBillDialog] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
-    tenant: '',
-    amount: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'cash',
-    payment_type: 'rent',
-    reference_number: '',
+
+  // Forms
+  const [payForm, setPayForm] = useState({
+    tenant: '', amount: '', payment_date: new Date().toISOString().split('T')[0],
+    payment_method: 'cash', payment_type: 'rent', reference_number: '', 
     month_for: new Date().toISOString().split('T')[0]
+  });
+
+  const [billForm, setBillForm] = useState({
+    tenant: '', bill_type: 'water', amount: '', 
+    month_for: new Date().toISOString().split('T')[0], description: ''
   });
 
   useEffect(() => {
@@ -49,16 +39,17 @@ function PaymentManagement() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const [paymentsRes, tenantsRes] = await Promise.all([
-        fetch('http://localhost:8000/api/payments/', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('http://localhost:8000/api/tenants/', { headers: { 'Authorization': `Bearer ${token}` } })
+      const headers = { 'Authorization': `Bearer ${token}` };
+      
+      const [payRes, billRes, tenRes] = await Promise.all([
+        fetch('http://localhost:8000/api/payments/', { headers }),
+        fetch('http://localhost:8000/api/bills/', { headers }),
+        fetch('http://localhost:8000/api/tenants/', { headers })
       ]);
 
-      const paymentsData = await paymentsRes.json();
-      const tenantsData = await tenantsRes.json();
-
-      setPayments(paymentsData);
-      setTenants(tenantsData);
+      setPayments(await payRes.json());
+      setBills(await billRes.json());
+      setTenants(await tenRes.json());
       setLoading(false);
     } catch (err) {
       setError('Failed to load data');
@@ -66,185 +57,193 @@ function PaymentManagement() {
     }
   };
 
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async () => {
-    setSaving(true);
+  const handleVerifyPayment = async (id) => {
+    if(!window.confirm("Confirm this payment is real?")) return;
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/api/payments/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
-
-      if (response.ok) {
-        fetchData();
-        setOpenDialog(false);
-        setFormData({
-            tenant: '',
-            amount: '',
-            payment_date: new Date().toISOString().split('T')[0],
-            payment_method: 'cash',
-            payment_type: 'rent',
-            reference_number: '',
-            month_for: new Date().toISOString().split('T')[0]
+        const token = localStorage.getItem('access_token');
+        await fetch(`http://localhost:8000/api/payments/${id}/verify/`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
         });
-      } else {
-        alert('Failed to record payment');
-      }
-    } catch (err) {
-      alert('Error saving payment');
-    } finally {
-      setSaving(false);
-    }
+        fetchData();
+    } catch(err) { alert("Error verifying"); }
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
+  const handleSavePayment = async () => {
+    setSaving(true);
+    await postData('http://localhost:8000/api/payments/', payForm);
+    setOpenPayDialog(false);
+    setSaving(false);
   };
+
+  const handleSaveBill = async () => {
+    setSaving(true);
+    await postData('http://localhost:8000/api/bills/', billForm);
+    setOpenBillDialog(false);
+    setSaving(false);
+  };
+
+  const postData = async (url, data) => {
+    try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if(res.ok) fetchData();
+        else alert("Failed to save");
+    } catch(err) { alert("Network Error"); }
+  };
+
+  const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
     <Container maxWidth="lg">
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-        <Typography variant="h4">Payments</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenDialog(true)}>
-          Record Payment
-        </Button>
+      <Box mb={4}>
+        <Typography variant="h4" gutterBottom>Financial Management</Typography>
+        <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} textColor="primary" indicatorColor="primary">
+            <Tab label="Payments Received" />
+            <Tab label="Bills & Invoices" />
+        </Tabs>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Tenant</TableCell>
-              <TableCell>House</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Amount</TableCell>
-              <TableCell>Method</TableCell>
-              <TableCell>Reference</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {payments.map((payment) => (
-              <TableRow key={payment.id}>
-                <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
-                <TableCell>{payment.tenant_name}</TableCell>
-                <TableCell>{payment.house_number}</TableCell>
-                <TableCell>
-                    <Chip 
-                        label={payment.payment_type ? payment.payment_type.replace('_', ' ').toUpperCase() : 'RENT'} 
-                        color="primary" 
-                        variant="outlined" 
-                        size="small" 
-                    />
-                </TableCell>
-                <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                <TableCell><Chip label={payment.payment_method.toUpperCase()} size="small" /></TableCell>
-                <TableCell>{payment.reference_number || '-'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {/* --- TAB 1: PAYMENTS --- */}
+      {tabIndex === 0 && (
+        <>
+            <Box display="flex" justifyContent="flex-end" mb={2}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenPayDialog(true)}>
+                    Record Payment
+                </Button>
+            </Box>
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Date</TableCell>
+                            <TableCell>Tenant</TableCell>
+                            <TableCell>Type</TableCell>
+                            <TableCell>Amount</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell>Action</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {payments.map((p) => (
+                            <TableRow key={p.id}>
+                                <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
+                                <TableCell>{p.tenant_name} ({p.house_number})</TableCell>
+                                <TableCell>{p.payment_type.toUpperCase()}</TableCell>
+                                <TableCell>{formatCurrency(p.amount)}</TableCell>
+                                <TableCell>
+                                    <Chip 
+                                        label={p.is_verified ? "Verified" : "Pending"} 
+                                        color={p.is_verified ? "success" : "warning"} 
+                                        size="small" 
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    {!p.is_verified && (
+                                        <Button size="small" onClick={() => handleVerifyPayment(p.id)}>Verify</Button>
+                                    )}
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </>
+      )}
 
-      {/* Manual Payment Dialog */}
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+      {/* --- TAB 2: BILLS --- */}
+      {tabIndex === 1 && (
+        <>
+            <Box display="flex" justifyContent="flex-end" mb={2}>
+                <Button variant="contained" color="secondary" startIcon={<ReceiptIcon />} onClick={() => setOpenBillDialog(true)}>
+                    Post New Bill
+                </Button>
+            </Box>
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell>Date Posted</TableCell>
+                            <TableCell>Tenant</TableCell>
+                            <TableCell>Bill Type</TableCell>
+                            <TableCell>Amount</TableCell>
+                            <TableCell>Description</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {bills.map((b) => (
+                            <TableRow key={b.id}>
+                                <TableCell>{new Date(b.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell>{b.tenant_name} ({b.house_number})</TableCell>
+                                <TableCell>
+                                    <Chip label={b.bill_type.toUpperCase()} variant="outlined" />
+                                </TableCell>
+                                <TableCell>{formatCurrency(b.amount)}</TableCell>
+                                <TableCell>{b.description || '-'}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </>
+      )}
+
+      {/* --- DIALOG: RECORD PAYMENT --- */}
+      <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Record Manual Payment</DialogTitle>
         <DialogContent>
-          <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              select
-              label="Tenant"
-              name="tenant"
-              value={formData.tenant}
-              onChange={handleInputChange}
-              fullWidth
-            >
-              {tenants.map((t) => (
-                <MenuItem key={t.id} value={t.id}>
-                  {t.user.first_name} {t.user.last_name} ({t.house?.house_number})
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <TextField
-                select
-                label="Payment Type"
-                name="payment_type"
-                value={formData.payment_type}
-                onChange={handleInputChange}
-                fullWidth
-            >
-                <MenuItem value="rent">Rent</MenuItem>
-                <MenuItem value="water">Water Bill</MenuItem>
-                <MenuItem value="electricity">Electricity Bill</MenuItem>
-                <MenuItem value="garbage">Garbage Fee</MenuItem>
-                <MenuItem value="damage">Damage Repair</MenuItem>
-                <MenuItem value="deposit">Security Deposit</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
-            </TextField>
-
-            <TextField
-              label="Amount"
-              name="amount"
-              type="number"
-              value={formData.amount}
-              onChange={handleInputChange}
-              fullWidth
-            />
-
-            <Box display="flex" gap={2}>
-                <TextField
-                label="Date Paid"
-                name="payment_date"
-                type="date"
-                value={formData.payment_date}
-                onChange={handleInputChange}
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                select
-                label="Method"
-                name="payment_method"
-                value={formData.payment_method}
-                onChange={handleInputChange}
-                fullWidth
-                >
-                <MenuItem value="cash">Cash</MenuItem>
-                <MenuItem value="bank">Bank Transfer</MenuItem>
-                <MenuItem value="mpesa">M-Pesa</MenuItem>
-                <MenuItem value="cheque">Cheque</MenuItem>
+            <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField select label="Tenant" value={payForm.tenant} onChange={(e) => setPayForm({...payForm, tenant: e.target.value})} fullWidth>
+                    {tenants.map((t) => <MenuItem key={t.id} value={t.id}>{t.user.first_name} {t.user.last_name} ({t.house?.house_number})</MenuItem>)}
+                </TextField>
+                <TextField label="Amount" type="number" value={payForm.amount} onChange={(e) => setPayForm({...payForm, amount: e.target.value})} fullWidth />
+                <TextField select label="Type" value={payForm.payment_type} onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} fullWidth>
+                    {['rent','water','electricity','garbage','damage','deposit','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
+                </TextField>
+                <TextField label="Date Paid" type="date" value={payForm.payment_date} onChange={(e) => setPayForm({...payForm, payment_date: e.target.value})} fullWidth InputLabelProps={{ shrink: true }} />
+                 <TextField select label="Method" value={payForm.payment_method} onChange={(e) => setPayForm({...payForm, payment_method: e.target.value})} fullWidth>
+                    <MenuItem value="cash">Cash</MenuItem>
+                    <MenuItem value="bank">Bank Transfer</MenuItem>
+                    <MenuItem value="mpesa">M-Pesa</MenuItem>
                 </TextField>
             </Box>
-
-            <TextField
-              label="Reference Number"
-              name="reference_number"
-              value={formData.reference_number}
-              onChange={handleInputChange}
-              fullWidth
-            />
-          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained" disabled={saving}>
-            {saving ? 'Saving...' : 'Save Payment'}
-          </Button>
+            <Button onClick={() => setOpenPayDialog(false)}>Cancel</Button>
+            <Button onClick={handleSavePayment} variant="contained" disabled={saving}>Save</Button>
         </DialogActions>
       </Dialog>
+
+      {/* --- DIALOG: POST BILL --- */}
+      <Dialog open={openBillDialog} onClose={() => setOpenBillDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Post New Bill</DialogTitle>
+        <DialogContent>
+            <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField select label="Tenant" value={billForm.tenant} onChange={(e) => setBillForm({...billForm, tenant: e.target.value})} fullWidth>
+                    {tenants.map((t) => <MenuItem key={t.id} value={t.id}>{t.user.first_name} {t.user.last_name} ({t.house?.house_number})</MenuItem>)}
+                </TextField>
+                <TextField select label="Bill Type" value={billForm.bill_type} onChange={(e) => setBillForm({...billForm, bill_type: e.target.value})} fullWidth>
+                    {['water','electricity','garbage','damage','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
+                </TextField>
+                <TextField label="Amount" type="number" value={billForm.amount} onChange={(e) => setBillForm({...billForm, amount: e.target.value})} fullWidth />
+                <TextField label="Month For" type="date" value={billForm.month_for} onChange={(e) => setBillForm({...billForm, month_for: e.target.value})} fullWidth InputLabelProps={{ shrink: true }} />
+                <TextField label="Description (Optional)" value={billForm.description} onChange={(e) => setBillForm({...billForm, description: e.target.value})} fullWidth multiline rows={2} />
+            </Box>
+        </DialogContent>
+        <DialogActions>
+            <Button onClick={() => setOpenBillDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveBill} variant="contained" color="secondary" disabled={saving}>Post Bill</Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }
