@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   Menu as MenuIcon, Dashboard, Home, People, Build, Payment, Description, 
-  Logout, PersonAdd, AccountCircle, Notifications
+  Logout, PersonAdd, AccountCircle, Notifications, Assessment
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -96,6 +96,7 @@ function Layout({ children, onLogout }) {
         { text: 'Contracts', icon: <Description />, path: '/contracts' },
         { text: 'Payments', icon: <Payment />, path: '/payments' },
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
+        { text: 'Reports', icon: <Assessment />, path: '/reports' }, // New Reports Link
       ];
     }
     if (role === 'technician') {

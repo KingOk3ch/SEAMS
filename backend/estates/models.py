@@ -87,13 +87,28 @@ class Payment(models.Model):
         ('cash', 'Cash'),
         ('cheque', 'Cheque'),
     ]
+
+    PAYMENT_TYPE_CHOICES = [
+        ('rent', 'Rent'),
+        ('water', 'Water Bill'),
+        ('electricity', 'Electricity Bill'),
+        ('garbage', 'Garbage Fee'),
+        ('damage', 'Damage Repair'),
+        ('deposit', 'Security Deposit'),
+        ('other', 'Other'),
+    ]
     
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_date = models.DateField()
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='rent')
     reference_number = models.CharField(max_length=50, blank=True)
     month_for = models.DateField(help_text="Month this payment covers")
+    
+    # SECURITY FLAG: Ensures fake payments don't count until Admin approves
+    is_verified = models.BooleanField(default=False)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -101,4 +116,5 @@ class Payment(models.Model):
         ordering = ['-payment_date']
     
     def __str__(self):
-        return f"Payment: {self.tenant.user.get_full_name()} - KES {self.amount}"
+        status = "Verified" if self.is_verified else "Pending"
+        return f"{self.get_payment_type_display()}: {self.tenant.user.get_full_name()} - {status}"

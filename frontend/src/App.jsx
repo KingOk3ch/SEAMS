@@ -14,7 +14,8 @@ import TenantDashboard from './components/TenantDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import UserManagement from './components/UserManagement';
 import TenantRegistration from './components/TenantRegistration';
-import Profile from './components/Profile'; // New Import
+import Profile from './components/Profile';
+import Reports from './components/Reports'; // New Import
 
 const theme = createTheme({
   palette: {
@@ -146,12 +147,19 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-            {/* New Profile Route - Accessible by all roles */}
             <Route 
               path="/profile" 
               element={
                 <ProtectedRoute allowedRoles={['estate_admin', 'technician', 'tenant', 'manager']}>
                   <Profile />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/reports" 
+              element={
+                <ProtectedRoute allowedRoles={['estate_admin']}>
+                  <Reports />
                 </ProtectedRoute>
               } 
             />

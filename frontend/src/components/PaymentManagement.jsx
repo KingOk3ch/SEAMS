@@ -10,44 +10,36 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Chip,
   CircularProgress,
   Alert,
+  Chip,
   Button,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem,
-  IconButton,
-  Grid,
-  FormControl,
-  InputLabel,
-  Select
+  MenuItem
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import FilterListIcon from '@mui/icons-material/FilterList';
 
 function PaymentManagement() {
   const [payments, setPayments] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  
+  // Dialog State
   const [openDialog, setOpenDialog] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [currentPayment, setCurrentPayment] = useState(null);
-  const [filterTenant, setFilterTenant] = useState('');
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     tenant: '',
     amount: '',
-    payment_date: '',
-    payment_method: 'mpesa',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_method: 'cash',
+    payment_type: 'rent',
     reference_number: '',
-    month_for: ''
+    month_for: new Date().toISOString().split('T')[0]
   });
 
   useEffect(() => {
@@ -57,377 +49,199 @@ function PaymentManagement() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      
-      const paymentsResponse = await fetch('http://localhost:8000/api/payments/', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const paymentsData = await paymentsResponse.json();
+      const [paymentsRes, tenantsRes] = await Promise.all([
+        fetch('http://localhost:8000/api/payments/', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('http://localhost:8000/api/tenants/', { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+
+      const paymentsData = await paymentsRes.json();
+      const tenantsData = await tenantsRes.json();
+
       setPayments(paymentsData);
-
-      const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const tenantsData = await tenantsResponse.json();
       setTenants(tenantsData);
-
       setLoading(false);
     } catch (err) {
-      setError('Connection error');
+      setError('Failed to load data');
       setLoading(false);
-      console.error('Error:', err);
     }
-  };
-
-  const handleOpenDialog = (payment = null) => {
-    if (payment) {
-      setEditMode(true);
-      setCurrentPayment(payment);
-      setFormData({
-        tenant: payment.tenant,
-        amount: payment.amount,
-        payment_date: payment.payment_date,
-        payment_method: payment.payment_method,
-        reference_number: payment.reference_number,
-        month_for: payment.month_for
-      });
-    } else {
-      setEditMode(false);
-      setCurrentPayment(null);
-      const today = new Date().toISOString().split('T')[0];
-      const firstDayOfMonth = new Date();
-      firstDayOfMonth.setDate(1);
-      const monthFor = firstDayOfMonth.toISOString().split('T')[0];
-
-      setFormData({
-        tenant: '',
-        amount: '',
-        payment_date: today,
-        payment_method: 'mpesa',
-        reference_number: '',
-        month_for: monthFor
-      });
-    }
-    setOpenDialog(true);
-  };
-
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setEditMode(false);
-    setCurrentPayment(null);
   };
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async () => {
+    setSaving(true);
     try {
       const token = localStorage.getItem('access_token');
-      const url = editMode 
-        ? `http://localhost:8000/api/payments/${currentPayment.id}/`
-        : 'http://localhost:8000/api/payments/';
-      
-      const method = editMode ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method: method,
+      const response = await fetch('http://localhost:8000/api/payments/', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
       });
 
       if (response.ok) {
         fetchData();
-        handleCloseDialog();
-        setSuccess(editMode ? 'Payment updated successfully' : 'Payment recorded successfully');
-        setError('');
+        setOpenDialog(false);
+        setFormData({
+            tenant: '',
+            amount: '',
+            payment_date: new Date().toISOString().split('T')[0],
+            payment_method: 'cash',
+            payment_type: 'rent',
+            reference_number: '',
+            month_for: new Date().toISOString().split('T')[0]
+        });
       } else {
-        const data = await response.json();
-        setError(JSON.stringify(data));
+        alert('Failed to record payment');
       }
     } catch (err) {
-      setError('Failed to save payment');
-      console.error('Error:', err);
+      alert('Error saving payment');
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const handleDelete = async (paymentId) => {
-    if (!window.confirm('Are you sure you want to delete this payment record?')) {
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/api/payments/${paymentId}/`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        fetchData();
-        setSuccess('Payment deleted successfully');
-        setError('');
-      } else {
-        setError('Failed to delete payment');
-      }
-    } catch (err) {
-      setError('Failed to delete payment');
-      console.error('Error:', err);
-    }
-  };
-
-  const getPaymentMethodColor = (method) => {
-    switch (method) {
-      case 'mpesa': return 'success';
-      case 'bank': return 'primary';
-      case 'cash': return 'warning';
-      case 'cheque': return 'info';
-      default: return 'default';
-    }
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES'
-    }).format(amount);
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
   };
 
-  const filteredPayments = filterTenant 
-    ? payments.filter(payment => payment.tenant === parseInt(filterTenant))
-    : payments;
-
-  const totalAmount = filteredPayments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
-
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
-  }
+  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
     <Container maxWidth="lg">
-      <Box sx={{ mb: 4 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h4" gutterBottom>
-            Payment Management
-          </Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />}
-            onClick={() => handleOpenDialog()}
-          >
-            Record Payment
-          </Button>
-        </Box>
-        <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            Total Payments: {filteredPayments.length} | Total Amount: {formatCurrency(totalAmount)}
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel>Filter by Tenant</InputLabel>
-            <Select
-              value={filterTenant}
-              label="Filter by Tenant"
-              onChange={(e) => setFilterTenant(e.target.value)}
-              startAdornment={<FilterListIcon sx={{ mr: 1, color: 'action.active' }} />}
-            >
-              <MenuItem value="">All Tenants</MenuItem>
-              {tenants.map((tenant) => (
-                <MenuItem key={tenant.id} value={tenant.id}>
-                  {tenant.user.first_name} {tenant.user.last_name} - {tenant.house_number}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+        <Typography variant="h4">Payments</Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenDialog(true)}>
+          Record Payment
+        </Button>
       </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell><strong>Date</strong></TableCell>
-              <TableCell><strong>Tenant</strong></TableCell>
-              <TableCell><strong>House</strong></TableCell>
-              <TableCell><strong>Amount</strong></TableCell>
-              <TableCell><strong>Method</strong></TableCell>
-              <TableCell><strong>Reference</strong></TableCell>
-              <TableCell><strong>Month For</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell>Tenant</TableCell>
+              <TableCell>House</TableCell>
+              <TableCell>Type</TableCell>
+              <TableCell>Amount</TableCell>
+              <TableCell>Method</TableCell>
+              <TableCell>Reference</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredPayments.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center">
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
-                    No payment records found
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredPayments.map((payment) => (
-                <TableRow key={payment.id} hover>
-                  <TableCell>{formatDate(payment.payment_date)}</TableCell>
-                  <TableCell>{payment.tenant_name}</TableCell>
-                  <TableCell>{payment.house_number}</TableCell>
-                  <TableCell><strong>{formatCurrency(payment.amount)}</strong></TableCell>
-                  <TableCell>
+            {payments.map((payment) => (
+              <TableRow key={payment.id}>
+                <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
+                <TableCell>{payment.tenant_name}</TableCell>
+                <TableCell>{payment.house_number}</TableCell>
+                <TableCell>
                     <Chip 
-                      label={payment.payment_method.toUpperCase()} 
-                      color={getPaymentMethodColor(payment.payment_method)}
-                      size="small"
+                        label={payment.payment_type ? payment.payment_type.replace('_', ' ').toUpperCase() : 'RENT'} 
+                        color="primary" 
+                        variant="outlined" 
+                        size="small" 
                     />
-                  </TableCell>
-                  <TableCell>{payment.reference_number || '-'}</TableCell>
-                  <TableCell>{formatDate(payment.month_for)}</TableCell>
-                  <TableCell>
-                    <IconButton 
-                      size="small" 
-                      color="primary"
-                      onClick={() => handleOpenDialog(payment)}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton 
-                      size="small" 
-                      color="error"
-                      onClick={() => handleDelete(payment.id)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+                </TableCell>
+                <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                <TableCell><Chip label={payment.payment_method.toUpperCase()} size="small" /></TableCell>
+                <TableCell>{payment.reference_number || '-'}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </TableContainer>
 
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          {editMode ? 'Edit Payment' : 'Record New Payment'}
-        </DialogTitle>
+      {/* Manual Payment Dialog */}
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Record Manual Payment</DialogTitle>
         <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
+          <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              select
+              label="Tenant"
+              name="tenant"
+              value={formData.tenant}
+              onChange={handleInputChange}
+              fullWidth
+            >
+              {tenants.map((t) => (
+                <MenuItem key={t.id} value={t.id}>
+                  {t.user.first_name} {t.user.last_name} ({t.house?.house_number})
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+                select
+                label="Payment Type"
+                name="payment_type"
+                value={formData.payment_type}
+                onChange={handleInputChange}
+                fullWidth
+            >
+                <MenuItem value="rent">Rent</MenuItem>
+                <MenuItem value="water">Water Bill</MenuItem>
+                <MenuItem value="electricity">Electricity Bill</MenuItem>
+                <MenuItem value="garbage">Garbage Fee</MenuItem>
+                <MenuItem value="damage">Damage Repair</MenuItem>
+                <MenuItem value="deposit">Security Deposit</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+            </TextField>
+
+            <TextField
+              label="Amount"
+              name="amount"
+              type="number"
+              value={formData.amount}
+              onChange={handleInputChange}
+              fullWidth
+            />
+
+            <Box display="flex" gap={2}>
                 <TextField
-                  select
-                  label="Tenant"
-                  name="tenant"
-                  value={formData.tenant}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
+                label="Date Paid"
+                name="payment_date"
+                type="date"
+                value={formData.payment_date}
+                onChange={handleInputChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                select
+                label="Method"
+                name="payment_method"
+                value={formData.payment_method}
+                onChange={handleInputChange}
+                fullWidth
                 >
-                  {tenants.map((tenant) => (
-                    <MenuItem key={tenant.id} value={tenant.id}>
-                      {tenant.user.first_name} {tenant.user.last_name} - {tenant.house_number}
-                    </MenuItem>
-                  ))}
+                <MenuItem value="cash">Cash</MenuItem>
+                <MenuItem value="bank">Bank Transfer</MenuItem>
+                <MenuItem value="mpesa">M-Pesa</MenuItem>
+                <MenuItem value="cheque">Cheque</MenuItem>
                 </TextField>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Amount"
-                  name="amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                  inputProps={{ min: 0, step: 0.01 }}
-                  helperText="Enter amount in KES"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Payment Date"
-                  name="payment_date"
-                  type="date"
-                  value={formData.payment_date}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  select
-                  label="Payment Method"
-                  name="payment_method"
-                  value={formData.payment_method}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                >
-                  <MenuItem value="mpesa">M-Pesa</MenuItem>
-                  <MenuItem value="bank">Bank Transfer</MenuItem>
-                  <MenuItem value="cash">Cash</MenuItem>
-                  <MenuItem value="cheque">Cheque</MenuItem>
-                </TextField>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Month For"
-                  name="month_for"
-                  type="date"
-                  value={formData.month_for}
-                  onChange={handleInputChange}
-                  required
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                  helperText="Month this payment covers"
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  label="Reference Number"
-                  name="reference_number"
-                  value={formData.reference_number}
-                  onChange={handleInputChange}
-                  fullWidth
-                  helperText="Transaction ID or receipt number (optional)"
-                />
-              </Grid>
-            </Grid>
+            </Box>
+
+            <TextField
+              label="Reference Number"
+              name="reference_number"
+              value={formData.reference_number}
+              onChange={handleInputChange}
+              fullWidth
+            />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editMode ? 'Update' : 'Record Payment'}
+          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={saving}>
+            {saving ? 'Saving...' : 'Save Payment'}
           </Button>
         </DialogActions>
       </Dialog>

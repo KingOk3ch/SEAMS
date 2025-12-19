@@ -9,12 +9,13 @@ class HouseSerializer(serializers.ModelSerializer):
 
 class TenantSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    user_id = serializers.IntegerField(write_only=True)
-    house_number = serializers.CharField(source='house.house_number', read_only=True)
+    house_details = HouseSerializer(source='house', read_only=True)
     
     class Meta:
         model = Tenant
-        fields = '__all__'
+        fields = ['id', 'user', 'house', 'house_details', 'move_in_date', 
+                  'contract_start', 'contract_end', 'emergency_contact', 
+                  'emergency_phone', 'status']
 
 class ContractSerializer(serializers.ModelSerializer):
     tenant_name = serializers.CharField(source='tenant.user.get_full_name', read_only=True)
@@ -22,7 +23,9 @@ class ContractSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Contract
-        fields = '__all__'
+        fields = ['id', 'tenant', 'tenant_name', 'house', 'house_number', 
+                  'start_date', 'end_date', 'monthly_rent', 'deposit_paid', 
+                  'contract_document', 'created_at']
 
 class PaymentSerializer(serializers.ModelSerializer):
     tenant_name = serializers.CharField(source='tenant.user.get_full_name', read_only=True)
@@ -30,4 +33,5 @@ class PaymentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Payment
-        fields = '__all__'
+        fields = ['id', 'tenant', 'tenant_name', 'house_number', 'amount', 'payment_date', 
+                  'payment_method', 'payment_type', 'reference_number', 'month_for', 'created_at']
