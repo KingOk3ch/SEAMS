@@ -20,8 +20,10 @@ function TenantPayments() {
 
   // Payment Dialog
   const [openPayDialog, setOpenPayDialog] = useState(false);
+  
+  // Default method changed to 'bank' (since M-Pesa is now manual only)
   const [payForm, setPayForm] = useState({
-    amount: '', payment_type: 'rent', method: 'mpesa', reference: '', 
+    amount: '', payment_type: 'rent', method: 'bank', reference: '', 
     phone: '', payment_date: new Date().toISOString().split('T')[0]
   });
   const [saving, setSaving] = useState(false);
@@ -45,17 +47,21 @@ function TenantPayments() {
       const billsData = await billsRes.json();
       const paymentsData = await paymentsRes.json();
       const allTenants = await tenantsRes.json();
-      const myTenant = allTenants.find(t => t.user.id === user.id);
-
-      // Filter data for this tenant only
-      const myBills = billsData.filter(b => b.tenant === myTenant?.id);
-      const myPayments = paymentsData.filter(p => p.tenant === myTenant?.id);
-
-      setBills(myBills);
-      setPayments(myPayments);
-      setTenantData(myTenant);
+      
+      // TenantViewSet is now filtered, but just in case we filter here too
+      const myTenant = allTenants.find(t => t.user.id === user.id) || allTenants[0];
 
       if (myTenant) {
+        // Filter data for this tenant
+        const myBills = billsData.filter(b => b.tenant === myTenant.id);
+        const myPayments = paymentsData.filter(p => p.tenant === myTenant.id);
+
+        setBills(myBills);
+        setPayments(myPayments);
+        setTenantData(myTenant);
+
+        // Calculate Balance: (Rent + Unpaid Bills) - (Verified Payments)
+        // Note: We use a ledger approach. Total owed vs Total paid.
         const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
         const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
         const totalPaid = myPayments
@@ -67,6 +73,7 @@ function TenantPayments() {
 
       setLoading(false);
     } catch (err) {
+      console.error(err);
       setError('Failed to load financial data.');
       setLoading(false);
     }
@@ -134,14 +141,14 @@ function TenantPayments() {
 
       <Grid container spacing={3} mb={4}>
         <Grid item xs={12} md={6}>
-            <Card sx={{ bgcolor: outstandingBalance > 0 ? '#ffebee' : '#e8f5e9' }}>
+            <Card sx={{ bgcolor: outstandingBalance > 100 ? '#ffebee' : '#e8f5e9' }}>
                 <CardContent>
                     <Typography color="textSecondary" gutterBottom>Outstanding Balance</Typography>
-                    <Typography variant="h3" fontWeight="bold" color={outstandingBalance > 0 ? 'error' : 'success'}>
+                    <Typography variant="h3" fontWeight="bold" color={outstandingBalance > 100 ? 'error' : 'success'}>
                         {formatCurrency(outstandingBalance > 0 ? outstandingBalance : 0)}
                     </Typography>
                     <Typography variant="caption">
-                        {outstandingBalance > 0 ? "You have pending dues." : "You are all clear!"}
+                        {outstandingBalance > 100 ? "You have pending dues." : "You are all clear!"}
                     </Typography>
                 </CardContent>
             </Card>
@@ -155,6 +162,7 @@ function TenantPayments() {
         </Tabs>
       </Paper>
 
+      {/* --- BILLS TAB --- */}
       {tabIndex === 0 && (
         <TableContainer component={Paper}>
             <Table>
@@ -164,12 +172,13 @@ function TenantPayments() {
                         <TableCell>Bill For</TableCell>
                         <TableCell>Amount</TableCell>
                         <TableCell>Description</TableCell>
+                        <TableCell>Status</TableCell>
                         <TableCell>Action</TableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
                     {bills.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} align="center">No bills found.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={6} align="center">No bills found.</TableCell></TableRow>
                     ) : (
                         bills.map((bill) => (
                             <TableRow key={bill.id}>
@@ -178,9 +187,20 @@ function TenantPayments() {
                                 <TableCell fontWeight="bold">{formatCurrency(bill.amount)}</TableCell>
                                 <TableCell>{bill.description || '-'}</TableCell>
                                 <TableCell>
-                                    <Button size="small" variant="contained" onClick={() => handlePayBill(bill)}>
-                                        Pay This
-                                    </Button>
+                                    <Chip 
+                                        label={bill.is_paid ? "PAID" : "UNPAID"} 
+                                        color={bill.is_paid ? "success" : "error"} 
+                                        size="small"
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    {!bill.is_paid ? (
+                                        <Button size="small" variant="contained" onClick={() => handlePayBill(bill)}>
+                                            Pay This
+                                        </Button>
+                                    ) : (
+                                        <Typography variant="caption" color="textSecondary">Completed</Typography>
+                                    )}
                                 </TableCell>
                             </TableRow>
                         ))
@@ -190,6 +210,7 @@ function TenantPayments() {
         </TableContainer>
       )}
 
+      {/* --- PAYMENTS TAB --- */}
       {tabIndex === 1 && (
         <TableContainer component={Paper}>
             <Table>
@@ -227,6 +248,7 @@ function TenantPayments() {
         </TableContainer>
       )}
 
+      {/* --- DIALOG --- */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Make a Payment</DialogTitle>
         <DialogContent>
@@ -254,19 +276,19 @@ function TenantPayments() {
                     onChange={(e) => setPayForm({...payForm, method: e.target.value})} 
                     fullWidth
                 >
-                    <MenuItem value="mpesa">M-Pesa</MenuItem>
+                    <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
-                {payForm.method === 'mpesa' && (
-                     <TextField 
-                        label="Phone Number" 
-                        value={payForm.phone} 
-                        onChange={(e) => setPayForm({...payForm, phone: e.target.value})} 
-                        fullWidth 
-                        placeholder="0712..."
-                    />
-                )}
+                
+                {/* Manual Phone/Ref Input */}
+                <TextField 
+                    label="Reference / Phone Number" 
+                    value={payForm.reference} 
+                    onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
+                    fullWidth 
+                    helperText="Enter M-Pesa code or Bank Ref"
+                />
             </Box>
         </DialogContent>
         <DialogActions>

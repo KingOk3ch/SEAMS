@@ -28,6 +28,7 @@ import {
 import HomeIcon from '@mui/icons-material/Home';
 import PaymentIcon from '@mui/icons-material/Payment';
 import BuildIcon from '@mui/icons-material/Build';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import { useNavigate } from 'react-router-dom';
 
@@ -35,15 +36,18 @@ function TenantDashboard() {
   const [tenantData, setTenantData] = useState(null);
   const [payments, setPayments] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
+  const [outstandingBalance, setOutstandingBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Payment Dialog State (Restored)
+  // Payment Dialog State
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
+  
+  // Updated defaults to match Manual System (Bank default)
   const [payForm, setPayForm] = useState({
-    amount: '', payment_type: 'rent', method: 'mpesa', reference: '', 
-    phone: '', payment_date: new Date().toISOString().split('T')[0]
+    amount: '', payment_type: 'rent', method: 'bank', reference: '', 
+    payment_date: new Date().toISOString().split('T')[0]
   });
 
   const navigate = useNavigate();
@@ -56,34 +60,44 @@ function TenantDashboard() {
     try {
       const token = localStorage.getItem('access_token');
       const user = JSON.parse(localStorage.getItem('user'));
+      const headers = { 'Authorization': `Bearer ${token}` };
 
-      // Fetch tenant info
-      const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      // 1. Fetch Tenant (Backend now filters this to only return MY tenant profile)
+      const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, { headers });
       const tenants = await tenantResponse.json();
-      const myTenant = tenants.find(t => t.user.id === user.id);
+      const myTenant = tenants.find(t => t.user.id === user.id) || tenants[0];
+      
       setTenantData(myTenant);
 
       if (myTenant) {
-        // Pre-fill payment amount
+        // Pre-fill payment amount with rent
         setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
 
-        // Fetch my payments
-        const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        // 2. Fetch My Payments
+        const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
         const allPayments = await paymentsResponse.json();
         const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
         setPayments(myPayments);
 
-        // Fetch my maintenance requests
-        const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        // 3. Fetch My Bills (Needed for Balance Calculation)
+        const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
+        const allBills = await billsResponse.json();
+        const myBills = allBills.filter(b => b.tenant === myTenant.id);
+
+        // 4. Fetch My Maintenance
+        const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
         const allMaintenance = await maintenanceResponse.json();
         const myMaintenance = allMaintenance.filter(m => m.reported_by === user.id);
         setMaintenance(myMaintenance);
+
+        // 5. Calculate Outstanding Balance
+        const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
+        const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+        const totalPaid = myPayments
+            .filter(p => p.is_verified)
+            .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        setOutstandingBalance((rentDue + totalBills) - totalPaid);
       }
 
       setLoading(false);
@@ -94,7 +108,7 @@ function TenantDashboard() {
     }
   };
 
-  // --- Payment Handlers (Restored) ---
+  // --- Payment Handler ---
   const handleInitiatePayment = async () => {
     setPayLoading(true);
     try {
@@ -158,10 +172,11 @@ function TenantDashboard() {
   }
 
   // --- Reusable Interactive Card ---
-  const DashboardCard = ({ icon, title, value, subtext, color, path, action }) => (
+  const DashboardCard = ({ icon, title, value, subtext, color, path, action, bgcolor }) => (
     <Card 
         sx={{ 
             height: '100%',
+            bgcolor: bgcolor || 'white',
             transition: 'transform 0.2s',
             '&:hover': (path || action) ? { transform: 'scale(1.02)', boxShadow: 6 } : {}
         }}
@@ -179,7 +194,7 @@ function TenantDashboard() {
             {icon}
             <Box ml={2}>
               <Typography variant="h6">{title}</Typography>
-              <Typography variant="h4">{value}</Typography>
+              <Typography variant="h4" fontWeight="bold">{value}</Typography>
             </Box>
           </Box>
           <Typography variant="body2" color="text.secondary">
@@ -198,7 +213,7 @@ function TenantDashboard() {
             variant="contained" 
             color="success" 
             startIcon={<AddCardIcon />}
-            onClick={() => setOpenPayDialog(true)} // Quick Pay Button
+            onClick={() => setOpenPayDialog(true)}
         >
             Pay Rent
         </Button>
@@ -208,23 +223,26 @@ function TenantDashboard() {
 
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
+        
+        {/* Outstanding Balance Card (NEW) */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
-            icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
-            title="My House"
-            value={tenantData.house_number}
-            subtext={`Monthly Rent: ${formatCurrency(tenantData.house?.rent_amount || 0)}`}
-            path={null} 
+            icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
+            title="Balance Due"
+            value={formatCurrency(outstandingBalance > 0 ? outstandingBalance : 0)}
+            subtext={outstandingBalance > 100 ? "Please clear your dues" : "You are up to date"}
+            bgcolor={outstandingBalance > 100 ? "#ffebee" : "#e8f5e9"}
+            path="/tenant-payments"
           />
         </Grid>
 
         <Grid item xs={12} md={4}>
           <DashboardCard 
-            icon={<PaymentIcon color="success" sx={{ fontSize: 40 }} />}
-            title="Payments"
-            value={payments.length}
-            subtext={`Total Paid: ${formatCurrency(payments.reduce((sum, p) => sum + parseFloat(p.amount), 0))}`}
-            path="/tenant-payments" // Navigates to full history
+            icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
+            title="My House"
+            value={tenantData.house_number}
+            subtext={`Rent: ${formatCurrency(tenantData.house?.rent_amount || 0)}`}
+            path={null} 
           />
         </Grid>
 
@@ -234,33 +252,10 @@ function TenantDashboard() {
             title="Maintenance"
             value={maintenance.length}
             subtext={`Pending: ${maintenance.filter(m => m.status === 'pending').length}`}
-            path="/maintenance" // Navigates to maintenance page
+            path="/maintenance" 
           />
         </Grid>
       </Grid>
-
-      {/* Contract Info */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>Contract Information</Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="body2" color="text.secondary">Move-in Date</Typography>
-            <Typography variant="body1">{formatDate(tenantData.move_in_date)}</Typography>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="body2" color="text.secondary">Contract Start</Typography>
-            <Typography variant="body1">{formatDate(tenantData.contract_start)}</Typography>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="body2" color="text.secondary">Contract End</Typography>
-            <Typography variant="body1">{formatDate(tenantData.contract_end)}</Typography>
-          </Grid>
-          <Grid item xs={6} sm={3}>
-            <Typography variant="body2" color="text.secondary">Status</Typography>
-            <Chip label={tenantData.status.toUpperCase()} color="success" size="small" />
-          </Grid>
-        </Grid>
-      </Paper>
 
       {/* Recent Payments */}
       <Paper sx={{ mb: 3 }}>
@@ -275,6 +270,7 @@ function TenantDashboard() {
                 <TableCell>Date</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Amount</TableCell>
+                <TableCell>Method</TableCell>
                 <TableCell>Status</TableCell>
               </TableRow>
             </TableHead>
@@ -284,6 +280,7 @@ function TenantDashboard() {
                   <TableCell>{formatDate(payment.payment_date)}</TableCell>
                   <TableCell>{payment.payment_type.toUpperCase()}</TableCell>
                   <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                  <TableCell>{payment.payment_method.toUpperCase()}</TableCell>
                   <TableCell>
                     <Chip 
                         label={payment.is_verified ? "Verified" : "Pending"} 
@@ -298,51 +295,7 @@ function TenantDashboard() {
         </TableContainer>
       </Paper>
 
-      {/* Recent Maintenance */}
-      <Paper>
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-          <Typography variant="h6">My Maintenance Requests</Typography>
-          <Chip label="View All" onClick={() => navigate('/maintenance')} clickable color="primary" variant="outlined" size="small" />
-        </Box>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Request ID</TableCell>
-                <TableCell>Issue</TableCell>
-                <TableCell>Priority</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Date</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {maintenance.slice(0, 5).map((request) => (
-                <TableRow key={request.id}>
-                  <TableCell>{request.request_id}</TableCell>
-                  <TableCell>{request.issue_description}</TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={request.priority.toUpperCase()} 
-                      color={request.priority === 'urgent' ? 'error' : 'default'}
-                      size="small" 
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={request.status.toUpperCase()} 
-                      color={request.status === 'completed' ? 'success' : 'warning'}
-                      size="small" 
-                    />
-                  </TableCell>
-                  <TableCell>{formatDate(request.created_at)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-
-      {/* QUICK PAY DIALOG (Restored) */}
+      {/* QUICK PAY DIALOG (Updated to match TenantPayments.jsx) */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Make a Payment</DialogTitle>
         <DialogContent>
@@ -370,19 +323,19 @@ function TenantDashboard() {
                     onChange={(e) => setPayForm({...payForm, method: e.target.value})} 
                     fullWidth
                 >
-                    <MenuItem value="mpesa">M-Pesa</MenuItem>
+                    <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
-                {payForm.method === 'mpesa' && (
-                     <TextField 
-                        label="Phone Number" 
-                        value={payForm.phone} 
-                        onChange={(e) => setPayForm({...payForm, phone: e.target.value})} 
-                        fullWidth 
-                        placeholder="0712..."
-                    />
-                )}
+                
+                {/* Reference Input (Replaces Phone Number) */}
+                <TextField 
+                    label="Reference Number / Transaction Code" 
+                    value={payForm.reference} 
+                    onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
+                    fullWidth 
+                    helperText="e.g. QK23... or Bank Ref"
+                />
             </Box>
         </DialogContent>
         <DialogActions>

@@ -61,11 +61,15 @@ function PaymentManagement() {
     if(!window.confirm("Confirm this payment is real?")) return;
     try {
         const token = localStorage.getItem('access_token');
-        await fetch(`http://localhost:8000/api/payments/${id}/verify/`, {
+        const res = await fetch(`http://localhost:8000/api/payments/${id}/verify/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        fetchData();
+        const data = await res.json();
+        if(data.status === 'verified') {
+            alert(data.message); // Shows "X Bills marked as Paid"
+            fetchData();
+        }
     } catch(err) { alert("Error verifying"); }
   };
 
@@ -175,6 +179,7 @@ function PaymentManagement() {
                             <TableCell>Tenant</TableCell>
                             <TableCell>Bill Type</TableCell>
                             <TableCell>Amount</TableCell>
+                            <TableCell>Status</TableCell> {/* NEW COLUMN */}
                             <TableCell>Description</TableCell>
                         </TableRow>
                     </TableHead>
@@ -187,6 +192,13 @@ function PaymentManagement() {
                                     <Chip label={b.bill_type.toUpperCase()} variant="outlined" />
                                 </TableCell>
                                 <TableCell>{formatCurrency(b.amount)}</TableCell>
+                                <TableCell>
+                                    <Chip 
+                                        label={b.is_paid ? "PAID" : "Pending"} 
+                                        color={b.is_paid ? "success" : "error"} 
+                                        size="small" 
+                                    />
+                                </TableCell>
                                 <TableCell>{b.description || '-'}</TableCell>
                             </TableRow>
                         ))}
@@ -212,7 +224,7 @@ function PaymentManagement() {
                  <TextField select label="Method" value={payForm.payment_method} onChange={(e) => setPayForm({...payForm, payment_method: e.target.value})} fullWidth>
                     <MenuItem value="cash">Cash</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
-                    <MenuItem value="mpesa">M-Pesa</MenuItem>
+                    <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                 </TextField>
             </Box>
         </DialogContent>
