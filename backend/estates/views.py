@@ -41,6 +41,16 @@ class TenantViewSet(viewsets.ModelViewSet):
     serializer_class = TenantSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        """
+        Optimize performance and security: 
+        Tenants only see their own profile. Admins see all.
+        """
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            return Tenant.objects.filter(user=user)
+        return Tenant.objects.all()
+
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
         
@@ -108,13 +118,45 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def verify(self, request, pk=None):
         """
         Admin action to verify a payment manually.
+        Automatically finds and clears matching Bills.
         """
         if getattr(request.user, 'role', None) != 'estate_admin':
             return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
             
         payment = self.get_object()
+        
+        if payment.is_verified:
+             return Response({'status': 'warning', 'message': 'Payment was already verified'})
+
         payment.is_verified = True
         payment.save()
+
+        # --- LOGIC TO LINK PAYMENT TO BILL ---
+        # If this payment is for a specific bill type (e.g. Water), mark that bill as paid.
+        if payment.payment_type in ['water', 'electricity', 'garbage', 'damage', 'other']:
+            # Find unpaid bills for this tenant, same type, matching month/year
+            matching_bills = Bill.objects.filter(
+                tenant=payment.tenant,
+                bill_type=payment.payment_type,
+                is_paid=False,
+                month_for__year=payment.month_for.year,
+                month_for__month=payment.month_for.month
+            )
+
+            # Check if payment covers the bill
+            bills_cleared = 0
+            remaining_amount = payment.amount
+
+            for bill in matching_bills:
+                if remaining_amount >= bill.amount:
+                    bill.is_paid = True
+                    bill.save()
+                    remaining_amount -= bill.amount
+                    bills_cleared += 1
+            
+            if bills_cleared > 0:
+                return Response({'status': 'verified', 'message': f'Payment verified. {bills_cleared} Bill(s) marked as Paid.'})
+
         return Response({'status': 'verified', 'message': 'Payment verified successfully'})
 
 

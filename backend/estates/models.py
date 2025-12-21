@@ -132,7 +132,7 @@ class Bill(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     month_for = models.DateField(help_text="Month this bill applies to")
     description = models.TextField(blank=True, null=True)
-    is_paid = models.BooleanField(default=False) # For manual tracking if needed
+    is_paid = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
