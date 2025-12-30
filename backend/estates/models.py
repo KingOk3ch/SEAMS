@@ -66,10 +66,12 @@ class Tenant(models.Model):
 
 class Contract(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
-    # SNAPSHOT FIELD
     archived_tenant_name = models.CharField(max_length=150, blank=True)
     
-    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='contracts')
+    # FIXED: Protect history if House is deleted
+    house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
+    archived_house_number = models.CharField(max_length=50, blank=True, help_text="Preserves house number if house is deleted")
+
     start_date = models.DateField()
     end_date = models.DateField()
     monthly_rent = models.DecimalField(max_digits=10, decimal_places=2)
@@ -82,14 +84,20 @@ class Contract(models.Model):
         ordering = ['-start_date']
     
     def save(self, *args, **kwargs):
-        # Snapshot name on save
+        # Snapshot Tenant Name
         if self.tenant and self.tenant.user:
             self.archived_tenant_name = self.tenant.user.get_full_name()
+        
+        # Snapshot House Number
+        if self.house:
+            self.archived_house_number = self.house.house_number
+            
         super().save(*args, **kwargs)
     
     def __str__(self):
-        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
-        return f"Contract: {name} - {self.house.house_number}"
+        t_name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        h_num = self.house.house_number if self.house else self.archived_house_number
+        return f"Contract: {t_name} - {h_num}"
 
 
 class Payment(models.Model):
@@ -111,7 +119,6 @@ class Payment(models.Model):
     ]
     
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
-    # SNAPSHOT FIELD
     archived_tenant_name = models.CharField(max_length=150, blank=True)
     
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -128,7 +135,6 @@ class Payment(models.Model):
         ordering = ['-payment_date']
     
     def save(self, *args, **kwargs):
-        # Snapshot name on save
         if self.tenant and self.tenant.user:
             self.archived_tenant_name = self.tenant.user.get_full_name()
         super().save(*args, **kwargs)
@@ -150,7 +156,6 @@ class Bill(models.Model):
     ]
 
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='bills')
-    # SNAPSHOT FIELD
     archived_tenant_name = models.CharField(max_length=150, blank=True)
     
     bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
@@ -165,7 +170,6 @@ class Bill(models.Model):
         ordering = ['-created_at']
         
     def save(self, *args, **kwargs):
-        # Snapshot name on save
         if self.tenant and self.tenant.user:
             self.archived_tenant_name = self.tenant.user.get_full_name()
         super().save(*args, **kwargs)

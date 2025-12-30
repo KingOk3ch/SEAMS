@@ -10,23 +10,27 @@ class MaintenanceImageSerializer(serializers.ModelSerializer):
 class MaintenanceRequestSerializer(serializers.ModelSerializer):
     reported_by_name = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
-    house_number = serializers.CharField(source='house.house_number', read_only=True)
+    house_number = serializers.SerializerMethodField()
     images = MaintenanceImageSerializer(many=True, read_only=True)
     
     class Meta:
         model = MaintenanceRequest
         fields = '__all__'
-        read_only_fields = ['request_id', 'created_at', 'archived_reported_by']
+        read_only_fields = ['request_id', 'created_at', 'archived_reported_by', 'archived_house_number']
 
     def get_reported_by_name(self, obj):
-        # 1. Try Live User
         if obj.reported_by:
             return obj.reported_by.get_full_name()
-        # 2. Try Archived Snapshot
         if obj.archived_reported_by:
             return f"{obj.archived_reported_by} (Deleted)"
-        # 3. Fallback
         return "Unknown User"
 
     def get_assigned_to_name(self, obj):
         return obj.assigned_to.get_full_name() if obj.assigned_to else "Unassigned"
+        
+    def get_house_number(self, obj):
+        if obj.house:
+            return obj.house.house_number
+        if obj.archived_house_number:
+            return f"{obj.archived_house_number} (Deleted)"
+        return "Unknown House"

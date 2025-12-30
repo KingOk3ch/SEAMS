@@ -18,12 +18,12 @@ class TenantSerializer(serializers.ModelSerializer):
 
 class ContractSerializer(serializers.ModelSerializer):
     tenant_name = serializers.SerializerMethodField()
-    house_number = serializers.CharField(source='house.house_number', read_only=True)
+    house_number = serializers.SerializerMethodField()
     
     class Meta:
         model = Contract
         fields = '__all__'
-        read_only_fields = ['archived_tenant_name']
+        read_only_fields = ['archived_tenant_name', 'archived_house_number']
 
     def get_tenant_name(self, obj):
         if obj.tenant and obj.tenant.user:
@@ -31,6 +31,13 @@ class ContractSerializer(serializers.ModelSerializer):
         if obj.archived_tenant_name:
             return f"{obj.archived_tenant_name} (Deleted)"
         return "Unknown Tenant"
+        
+    def get_house_number(self, obj):
+        if obj.house:
+            return obj.house.house_number
+        if obj.archived_house_number:
+            return f"{obj.archived_house_number} (Deleted)"
+        return "Unknown House"
 
 class PaymentSerializer(serializers.ModelSerializer):
     tenant_name = serializers.SerializerMethodField()
