@@ -65,18 +65,6 @@ class TenantViewSet(viewsets.ModelViewSet):
         
         return response
 
-    def destroy(self, request, *args, **kwargs):
-        tenant = self.get_object()
-        house = tenant.house
-        
-        response = super().destroy(request, *args, **kwargs)
-        
-        if response.status_code == 204:
-            house.status = 'vacant'
-            house.save()
-        
-        return response
-
     @action(detail=False, methods=['get'])
     def expiring(self, request):
         thirty_days_later = date.today() + timedelta(days=30)

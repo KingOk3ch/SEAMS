@@ -1,5 +1,7 @@
 from django.db import models
 from django.conf import settings
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 class House(models.Model):
     STATUS_CHOICES = [
@@ -141,3 +143,16 @@ class Bill(models.Model):
 
     def __str__(self):
         return f"Bill: {self.get_bill_type_display()} - {self.tenant.user.get_full_name()} ({self.amount})"
+
+# --- SIGNALS ---
+@receiver(pre_delete, sender=Tenant)
+def release_house_on_tenant_delete(sender, instance, **kwargs):
+    """
+    When a Tenant is deleted (directly or via User deletion),
+    automatically revert their assigned House status to 'vacant'.
+    """
+    if instance.house:
+        # print(f"Signal caught: Releasing House {instance.house.house_number}...")
+        house = instance.house
+        house.status = 'vacant'
+        house.save()
