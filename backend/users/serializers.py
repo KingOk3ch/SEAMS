@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from .models import Notification
-import random
+import secrets # CHANGED: Use secrets instead of random
 import string
 
 User = get_user_model()
@@ -94,8 +94,8 @@ class TenantRegistrationSerializer(serializers.ModelSerializer):
         return value
     
     def create(self, validated_data):
-        # Generate 6-digit code
-        code = str(random.randint(100000, 999999))
+        # CHANGED: Secure 6-digit code generation
+        code = ''.join(secrets.choice(string.digits) for _ in range(6))
         
         user = User.objects.create(
             username=validated_data['username'],
@@ -142,7 +142,8 @@ class UserApprovalSerializer(serializers.ModelSerializer):
         
         instance.save()
         return instance
-    #Notification Serializer
+
+#Notification Serializer
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification

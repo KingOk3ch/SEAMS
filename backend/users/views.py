@@ -15,7 +15,7 @@ from .serializers import (
     NotificationSerializer
 )
 from .models import Notification
-import random
+import secrets # CHANGED FROM RANDOM
 import string
 
 User = get_user_model()
@@ -30,15 +30,15 @@ class UserViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
     
     def generate_random_password(self, length=12):
+        # SECURITY: Use secrets for cryptographically strong random numbers
         characters = string.ascii_letters + string.digits + '@#$%&*'
-        password = ''.join(random.choice(characters) for i in range(length))
-        if (any(c.isupper() for c in password) and 
-            any(c.islower() for c in password) and 
-            any(c.isdigit() for c in password) and 
-            any(c in '@#$%&*' for c in password)):
-            return password
-        else:
-            return self.generate_random_password(length)
+        while True:
+            password = ''.join(secrets.choice(characters) for i in range(length))
+            if (any(c.isupper() for c in password) and 
+                any(c.islower() for c in password) and 
+                any(c.isdigit() for c in password) and 
+                any(c in '@#$%&*' for c in password)):
+                return password
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):

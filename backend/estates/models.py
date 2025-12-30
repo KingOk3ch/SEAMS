@@ -45,7 +45,14 @@ class Tenant(models.Model):
         ('inactive', 'Inactive'),
     ]
     
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='tenant_profile')
+    # If the User account is deleted, the Tenant profile (history) remains.
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='tenant_profile'
+    )
     house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='tenants')
     move_in_date = models.DateField()
     contract_start = models.DateField()
@@ -61,14 +68,16 @@ class Tenant(models.Model):
         ordering = ['-move_in_date']
     
     def __str__(self):
-        return f"{self.user.get_full_name()} - House {self.house.house_number if self.house else 'No House'}"
+        # Updated to handle cases where User is deleted (None)
+        user_name = self.user.get_full_name() if self.user else "Deleted User"
+        house_str = self.house.house_number if self.house else 'No House'
+        return f"{user_name} - House {house_str}"
 
 
 class Contract(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
     archived_tenant_name = models.CharField(max_length=150, blank=True)
     
-    # FIXED: Protect history if House is deleted
     house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
     archived_house_number = models.CharField(max_length=50, blank=True, help_text="Preserves house number if house is deleted")
 
@@ -95,7 +104,14 @@ class Contract(models.Model):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        t_name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        # Intelligent fallback: If tenant exists, use their name. If deleted, use archived name.
+        if self.tenant and self.tenant.user:
+            t_name = self.tenant.user.get_full_name()
+        elif self.archived_tenant_name:
+            t_name = f"{self.archived_tenant_name} (Archived)"
+        else:
+            t_name = "Unknown Tenant"
+            
         h_num = self.house.house_number if self.house else self.archived_house_number
         return f"Contract: {t_name} - {h_num}"
 
@@ -141,7 +157,10 @@ class Payment(models.Model):
     
     def __str__(self):
         status = "Verified" if self.is_verified else "Pending"
-        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        if self.tenant and self.tenant.user:
+            name = self.tenant.user.get_full_name()
+        else:
+            name = self.archived_tenant_name or "Unknown"
         return f"{self.get_payment_type_display()}: {name} - {status}"
 
 # --- BILLS (INVOICES) ---
@@ -175,12 +194,20 @@ class Bill(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        if self.tenant and self.tenant.user:
+            name = self.tenant.user.get_full_name()
+        else:
+            name = self.archived_tenant_name or "Unknown"
         return f"Bill: {self.get_bill_type_display()} - {name} ({self.amount})"
 
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
 def release_house_on_tenant_delete(sender, instance, **kwargs):
+    """
+    If a Tenant profile is explicitly deleted, mark their house as vacant.
+    Note: Since Tenant.user is now SET_NULL, deleting a User account 
+    will NOT trigger this signal (which is good, it preserves the tenant record).
+    """
     if instance.house:
         house = instance.house
         house.status = 'vacant'
