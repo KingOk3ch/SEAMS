@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { PersonAdd, CheckCircle, MarkEmailRead } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { authAPI } from '../services/api'; // Ensure this import is present
 
 const TenantRegistration = () => {
   const navigate = useNavigate();
@@ -68,35 +69,33 @@ const TenantRegistration = () => {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/register/tenant/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: formData.username,
-          email: formData.email,
-          password: formData.password,
-          first_name: formData.first_name,
-          last_name: formData.last_name,
-          phone: formData.phone,
-          id_number: formData.id_number,
-        })
+      // Use authAPI from services
+      await authAPI.registerTenant({
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        phone: formData.phone,
+        id_number: formData.id_number,
       });
 
-      if (response.ok) {
-        // Move to verification step
-        setSuccessMessage('Registration successful! A verification code has been sent to your email.');
-        setStep(2);
-      } else {
-        const errorData = await response.json();
-        const newErrors = {};
-        Object.keys(errorData).forEach(key => {
-          newErrors[key] = Array.isArray(errorData[key]) ? errorData[key][0] : errorData[key];
-        });
-        setErrors(newErrors);
-        setErrorMessage('Registration failed. Please fix errors.');
-      }
+      setSuccessMessage('Registration successful! A verification code has been sent to your email.');
+      setStep(2);
+
     } catch (error) {
-      setErrorMessage('Network error. Please try again.');
+      console.error(error);
+      const errorData = error.response?.data || {};
+      const newErrors = {};
+      Object.keys(errorData).forEach(key => {
+        newErrors[key] = Array.isArray(errorData[key]) ? errorData[key][0] : errorData[key];
+      });
+      if (Object.keys(newErrors).length > 0) {
+          setErrors(newErrors);
+          setErrorMessage('Registration failed. Please fix the highlighted errors.');
+      } else {
+          setErrorMessage('Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -108,23 +107,15 @@ const TenantRegistration = () => {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/verify-email/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email, // Use email from state
-          code: verificationCode
-        })
+      await authAPI.verifyEmail({
+        email: formData.email,
+        code: verificationCode
       });
 
-      if (response.ok) {
-        setStep(3); // Success Step
-      } else {
-        const data = await response.json();
-        setErrorMessage(data.error || 'Invalid verification code');
-      }
+      setStep(3); // Success Step
+
     } catch (error) {
-      setErrorMessage('Verification failed. Please try again.');
+      setErrorMessage(error.response?.data?.error || 'Invalid verification code');
     } finally {
       setLoading(false);
     }
@@ -146,7 +137,7 @@ const TenantRegistration = () => {
             <Alert severity="info" sx={{ mb: 3 }}>
               You will receive an email once the Admin approves your account and assigns you a house.
             </Alert>
-            <Button variant="contained" href="/" fullWidth>
+            <Button variant="contained" href="/login" fullWidth>
               Go to Login
             </Button>
           </CardContent>
@@ -240,7 +231,7 @@ const TenantRegistration = () => {
               {loading ? <CircularProgress size={24} /> : 'Register'}
             </Button>
 
-            <Button variant="text" fullWidth href="/">
+            <Button variant="text" fullWidth href="/login">
               Already have an account? Login
             </Button>
           </form>

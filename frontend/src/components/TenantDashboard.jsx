@@ -26,7 +26,6 @@ import {
   MenuItem
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
-import PaymentIcon from '@mui/icons-material/Payment';
 import BuildIcon from '@mui/icons-material/Build';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
@@ -44,7 +43,6 @@ function TenantDashboard() {
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   
-  // Updated defaults to match Manual System (Bank default)
   const [payForm, setPayForm] = useState({
     amount: '', payment_type: 'rent', method: 'bank', reference: '', 
     payment_date: new Date().toISOString().split('T')[0]
@@ -62,53 +60,62 @@ function TenantDashboard() {
       const user = JSON.parse(localStorage.getItem('user'));
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // 1. Fetch Tenant (Backend now filters this to only return MY tenant profile)
+      // 1. Fetch Tenant Profile
       const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, { headers });
       const tenants = await tenantResponse.json();
-      const myTenant = tenants.find(t => t.user.id === user.id) || tenants[0];
+      
+      // FIX: Safe Tenant Search with Strict Equality
+      // We convert both IDs to String to safely compare "5" (string) vs 5 (number)
+      const myTenant = tenants.find(t => String(t.user.id) === String(user.id));
+      
+      if (!myTenant) {
+        setError('Tenant profile not found. Please contact admin.');
+        setLoading(false);
+        return;
+      }
       
       setTenantData(myTenant);
+      setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
 
-      if (myTenant) {
-        // Pre-fill payment amount with rent
-        setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
+      // 2. Fetch Payments
+      const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
+      let allPayments = await paymentsResponse.json();
+      if (allPayments.results) allPayments = allPayments.results;
+      
+      const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
+      setPayments(myPayments);
 
-        // 2. Fetch My Payments
-        const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
-        const allPayments = await paymentsResponse.json();
-        const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
-        setPayments(myPayments);
+      // 3. Fetch Bills & Calculate Balance
+      const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
+      let allBills = await billsResponse.json();
+      if (allBills.results) allBills = allBills.results;
+      
+      const myBills = allBills.filter(b => b.tenant === myTenant.id);
 
-        // 3. Fetch My Bills (Needed for Balance Calculation)
-        const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
-        const allBills = await billsResponse.json();
-        const myBills = allBills.filter(b => b.tenant === myTenant.id);
+      const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
+      const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+      const totalPaid = myPayments
+          .filter(p => p.is_verified)
+          .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      
+      setOutstandingBalance((rentDue + totalBills) - totalPaid);
 
-        // 4. Fetch My Maintenance
-        const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
-        const allMaintenance = await maintenanceResponse.json();
-        const myMaintenance = allMaintenance.filter(m => m.reported_by === user.id);
-        setMaintenance(myMaintenance);
+      // 4. Fetch My Maintenance - NO FILTERING, backend handles it
+      const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
+      let allMaintenance = await maintenanceResponse.json();
+      if (allMaintenance.results) allMaintenance = allMaintenance.results;
 
-        // 5. Calculate Outstanding Balance
-        const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
-        const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
-        const totalPaid = myPayments
-            .filter(p => p.is_verified)
-            .reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
-        setOutstandingBalance((rentDue + totalBills) - totalPaid);
-      }
+      // ✅ REMOVED FRONTEND FILTERING - Backend already filters by user and status
+      setMaintenance(allMaintenance);
 
       setLoading(false);
     } catch (err) {
-      setError('Failed to load data');
+      setError('Failed to load data. Please check your connection.');
       setLoading(false);
       console.error('Error:', err);
     }
   };
 
-  // --- Payment Handler ---
   const handleInitiatePayment = async () => {
     setPayLoading(true);
     try {
@@ -135,7 +142,7 @@ function TenantDashboard() {
         if (res.ok) {
             alert("Payment Recorded! Waiting for Admin Verification.");
             setOpenPayDialog(false);
-            fetchTenantData(); // Refresh data immediately
+            fetchTenantData(); 
         } else {
             alert("Failed to record payment");
         }
@@ -147,46 +154,38 @@ function TenantDashboard() {
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES'
-    }).format(amount);
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
+
+  // --- LOGIC: Calculate 'Active' Requests (including 'new') ---
+  const activeMaintenanceCount = maintenance.filter(m => {
+    const status = (m.status || '').toString().toLowerCase().trim();
+    return ['new', 'pending', 'assigned', 'in_progress'].includes(status);
+  }).length;
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   if (!tenantData) {
-    return (
-      <Container maxWidth="lg">
-        <Alert severity="warning">No tenant record found for your account.</Alert>
-      </Container>
-    );
+    return <Container maxWidth="lg"><Alert severity="warning">{error || "No tenant record found."}</Alert></Container>;
   }
 
-  // --- Reusable Interactive Card ---
-  const DashboardCard = ({ icon, title, value, subtext, color, path, action, bgcolor }) => (
+  // --- Reusable Dashboard Card ---
+  const DashboardCard = ({ icon, title, value, subtext, color, path, bgcolor }) => (
     <Card 
         sx={{ 
             height: '100%',
             bgcolor: bgcolor || 'white',
             transition: 'transform 0.2s',
-            '&:hover': (path || action) ? { transform: 'scale(1.02)', boxShadow: 6 } : {}
+            '&:hover': path ? { transform: 'scale(1.02)', boxShadow: 6, cursor: 'pointer' } : {}
         }}
     >
       <CardActionArea 
-        onClick={() => {
-            if (action) action();
-            else if (path) navigate(path);
-        }} 
-        disabled={!path && !action}
+        onClick={() => path && navigate(path)} 
+        disabled={!path}
         sx={{ height: '100%', p: 1 }}
       >
         <CardContent>
@@ -221,10 +220,9 @@ function TenantDashboard() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         
-        {/* Outstanding Balance Card (NEW) */}
+        {/* Outstanding Balance Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
@@ -236,6 +234,7 @@ function TenantDashboard() {
           />
         </Grid>
 
+        {/* House Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
@@ -246,18 +245,19 @@ function TenantDashboard() {
           />
         </Grid>
 
+        {/* Maintenance Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<BuildIcon color="warning" sx={{ fontSize: 40 }} />}
-            title="Maintenance"
-            value={maintenance.length}
-            subtext={`Pending: ${maintenance.filter(m => m.status === 'pending').length}`}
+            title="Active Requests" 
+            value={activeMaintenanceCount} 
+            subtext={`${maintenance.length} Total Requests in History`} 
             path="/maintenance" 
           />
         </Grid>
       </Grid>
 
-      {/* Recent Payments */}
+      {/* Recent Payments Table */}
       <Paper sx={{ mb: 3 }}>
         <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="h6">Recent Payments</Typography>
@@ -295,7 +295,7 @@ function TenantDashboard() {
         </TableContainer>
       </Paper>
 
-      {/* QUICK PAY DIALOG (Updated to match TenantPayments.jsx) */}
+      {/* Quick Pay Dialog */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Make a Payment</DialogTitle>
         <DialogContent>
@@ -328,7 +328,6 @@ function TenantDashboard() {
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
                 
-                {/* Reference Input (Replaces Phone Number) */}
                 <TextField 
                     label="Reference Number / Transaction Code" 
                     value={payForm.reference} 
@@ -345,7 +344,6 @@ function TenantDashboard() {
             </Button>
         </DialogActions>
       </Dialog>
-
     </Container>
   );
 }

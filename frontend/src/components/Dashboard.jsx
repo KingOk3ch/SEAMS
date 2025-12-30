@@ -23,7 +23,14 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Tooltip
+  Tooltip,
+  // Added Imports for Dialog
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem
 } from '@mui/material';
 import {
   Home,
@@ -38,7 +45,7 @@ import {
   Warning,
   ArrowForward
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom'; // <--- IMPORT THIS
+import { useNavigate } from 'react-router-dom';
 
 function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -49,15 +56,42 @@ function Dashboard() {
   // Data States
   const [pendingUsers, setPendingUsers] = useState([]);
   const [pendingMaintenance, setPendingMaintenance] = useState([]);
+  const [vacantHouses, setVacantHouses] = useState([]); // Store vacant houses for dropdown
+
+  // Approval Dialog States
+  const [openApproveDialog, setOpenApproveDialog] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [approvalData, setApprovalData] = useState({
+    house_id: '',
+    move_in_date: new Date().toISOString().split('T')[0],
+    contract_start: new Date().toISOString().split('T')[0],
+    contract_end: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+  });
   
   // UI States
   const [expandApprovals, setExpandApprovals] = useState(false);
 
-  const navigate = useNavigate(); // <--- INITIALIZE NAVIGATION
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchDashboardData();
+    fetchVacantHouses(); // Fetch houses on load
   }, []);
+
+  const fetchVacantHouses = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('http://localhost:8000/api/houses/vacant/', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setVacantHouses(data);
+      }
+    } catch (err) {
+      console.error('Error fetching vacant houses:', err);
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -114,34 +148,81 @@ function Dashboard() {
 
   // --- Handlers ---
 
-  const handleUserAction = async (userId, action) => {
-    let body = {};
-    if (action === 'approve') {
-      if (!window.confirm('Approve this user? They will be able to log in immediately.')) return;
-      body = { approval_status: 'approved' };
-    } else {
-      const reason = prompt('Enter rejection reason:');
-      if (!reason) return;
-      body = { rejection_reason: reason };
-    }
+  const handleOpenApprove = (user) => {
+    setSelectedUser(user);
+    // Reset data
+    setApprovalData({
+      house_id: '',
+      move_in_date: new Date().toISOString().split('T')[0],
+      contract_start: new Date().toISOString().split('T')[0],
+      contract_end: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
+    });
+    setOpenApproveDialog(true);
+  };
 
+  const handleCloseApprove = () => {
+    setOpenApproveDialog(false);
+    setSelectedUser(null);
+  };
+
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    setApprovalData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const submitApproval = async () => {
+    if (!selectedUser) return;
+    
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/api/users/${userId}/${action}/`, {
+      const response = await fetch(`http://localhost:8000/api/users/${selectedUser.id}/approve/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          approval_status: 'approved',
+          ...approvalData
+        })
       });
 
       if (response.ok) {
-        setActionMessage({ type: 'success', text: `User ${action}d successfully` });
+        setActionMessage({ type: 'success', text: `User ${selectedUser.first_name} approved and assigned!` });
+        handleCloseApprove();
+        fetchDashboardData(); 
+        fetchVacantHouses(); // Update vacant list
+      } else {
+        const data = await response.json();
+        setActionMessage({ type: 'error', text: data.error || 'Failed to approve user' });
+      }
+    } catch (err) {
+      setActionMessage({ type: 'error', text: 'Network error approving user' });
+    }
+    setTimeout(() => setActionMessage({ type: '', text: '' }), 3000);
+  };
+
+  const handleReject = async (userId) => {
+    const reason = prompt('Enter rejection reason:');
+    if (!reason) return;
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`http://localhost:8000/api/users/${userId}/reject/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ rejection_reason: reason })
+      });
+
+      if (response.ok) {
+        setActionMessage({ type: 'success', text: `User rejected successfully` });
         fetchDashboardData(); 
       } else {
         const data = await response.json();
-        setActionMessage({ type: 'error', text: data.error || `Failed to ${action} user` });
+        setActionMessage({ type: 'error', text: data.error || `Failed to reject user` });
       }
     } catch (err) {
       setActionMessage({ type: 'error', text: 'Network error occurred' });
@@ -226,7 +307,7 @@ function Dashboard() {
             subtitle={`${stats.houses.occupied} Occupied • ${stats.houses.vacant} Vacant`}
             icon={<Home fontSize="large" />} 
             color="#1976d2" 
-            onClick={() => navigate('/houses')} // <--- NAVIGATION
+            onClick={() => navigate('/houses')} 
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -236,7 +317,7 @@ function Dashboard() {
             subtitle="Active Leases"
             icon={<People fontSize="large" />} 
             color="#2e7d32" 
-            onClick={() => navigate('/tenants')} // <--- NAVIGATION
+            onClick={() => navigate('/tenants')} 
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -247,7 +328,7 @@ function Dashboard() {
             icon={<Build fontSize="large" />} 
             color="#ed6c02"
             hasBadge={stats.maintenance.pending > 0}
-            onClick={() => navigate('/maintenance')} // <--- NAVIGATION
+            onClick={() => navigate('/maintenance')} 
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -258,7 +339,7 @@ function Dashboard() {
             icon={<HourglassEmpty fontSize="large" />} 
             color="#d32f2f"
             hasBadge={stats.pendingApprovalsCount > 0}
-            onClick={() => setExpandApprovals(!expandApprovals)} // <--- TOGGLES WIDGET
+            onClick={() => setExpandApprovals(!expandApprovals)} 
           />
         </Grid>
       </Grid>
@@ -298,7 +379,7 @@ function Dashboard() {
                             color="success" 
                             size="small" 
                             startIcon={<Check />}
-                            onClick={() => handleUserAction(user.id, 'approve')}
+                            onClick={() => handleOpenApprove(user)} // CHANGED: Open Dialog
                           >
                             Approve
                           </Button>
@@ -307,7 +388,7 @@ function Dashboard() {
                             color="error" 
                             size="small" 
                             startIcon={<Close />}
-                            onClick={() => handleUserAction(user.id, 'reject')}
+                            onClick={() => handleReject(user.id)}
                           >
                             Reject
                           </Button>
@@ -427,6 +508,84 @@ function Dashboard() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* --- APPROVAL DIALOG */}
+      <Dialog open={openApproveDialog} onClose={handleCloseApprove} maxWidth="sm" fullWidth>
+        <DialogTitle>Approve & Assign House</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info">
+              Approving <strong>{selectedUser?.first_name} {selectedUser?.last_name}</strong>. Please assign a vacant house.
+            </Alert>
+            
+            <TextField
+              select
+              label="Assign House"
+              name="house_id"
+              value={approvalData.house_id}
+              onChange={handleApprovalInputChange}
+              fullWidth
+              required
+            >
+              {vacantHouses.length === 0 ? (
+                <MenuItem disabled>No vacant houses available</MenuItem>
+              ) : (
+                vacantHouses.map((house) => (
+                  <MenuItem key={house.id} value={house.id}>
+                    {house.house_number} ({house.house_type}) - KES {house.rent_amount}
+                  </MenuItem>
+                ))
+              )}
+            </TextField>
+
+            <TextField
+              label="Move-in Date"
+              name="move_in_date"
+              type="date"
+              value={approvalData.move_in_date}
+              onChange={handleApprovalInputChange}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Contract Start"
+                  name="contract_start"
+                  type="date"
+                  value={approvalData.contract_start}
+                  onChange={handleApprovalInputChange}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Contract End"
+                  name="contract_end"
+                  type="date"
+                  value={approvalData.contract_end}
+                  onChange={handleApprovalInputChange}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseApprove}>Cancel</Button>
+          <Button 
+            onClick={submitApproval} 
+            variant="contained" 
+            color="success"
+            disabled={!approvalData.house_id}
+          >
+            Approve & Assign
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </Container>
   );

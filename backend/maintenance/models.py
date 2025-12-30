@@ -11,6 +11,7 @@ class MaintenanceRequest(models.Model):
     ]
     
     STATUS_CHOICES = [
+        ('new', 'New'),  # ✅ ADDED THIS
         ('pending', 'Pending'),
         ('assigned', 'Assigned'),
         ('in_progress', 'In Progress'),
@@ -34,7 +35,7 @@ class MaintenanceRequest(models.Model):
     issue_description = models.TextField()
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='general')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')  # ✅ CHANGED DEFAULT
     
     created_at = models.DateTimeField(auto_now_add=True)
     assigned_at = models.DateTimeField(null=True, blank=True)
@@ -49,13 +50,25 @@ class MaintenanceRequest(models.Model):
         ordering = ['-created_at']
     
     def save(self, *args, **kwargs):
+        # ---Enforce clean status ---
+        # This converts "Assigned " -> "assigned" automatically
+        if self.status:
+            self.status = self.status.lower().strip()
+
+        # Existing ID generation logic
         if not self.request_id:
             last_request = MaintenanceRequest.objects.all().order_by('id').last()
             if last_request:
-                last_id = int(last_request.request_id.split('-')[1])
-                self.request_id = f'MR-{str(last_id + 1).zfill(3)}'
+                try:
+                    # Handle potential formatting errors in existing IDs
+                    last_id = int(last_request.request_id.split('-')[1])
+                    self.request_id = f'MR-{str(last_id + 1).zfill(3)}'
+                except (IndexError, ValueError):
+                    # Fallback if split fails
+                    self.request_id = f'MR-{str(last_request.id + 1).zfill(3)}'
             else:
                 self.request_id = 'MR-001'
+                
         super().save(*args, **kwargs)
     
     def __str__(self):

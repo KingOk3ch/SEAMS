@@ -35,15 +35,15 @@ class User(AbstractUser):
     email_verified = models.BooleanField(default=False)
     email_verification_token = models.CharField(max_length=100, blank=True, null=True)
     
-    # House Allocation (Admin assigns this directly to User model for simplicity in this flow, 
-    # though it is also tracked in the Tenant model)
+    # House Allocation
     house_number = models.CharField(max_length=50, blank=True, null=True)
     
     registration_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
-    #Notifications
+
+# Ensure this class is NOT indented. It must be at the same level as class User.
 class Notification(models.Model):
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
     message = models.TextField()
