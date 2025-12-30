@@ -65,7 +65,10 @@ class Tenant(models.Model):
 
 
 class Contract(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='contracts')
+    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
+    # SNAPSHOT FIELD
+    archived_tenant_name = models.CharField(max_length=150, blank=True)
+    
     house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='contracts')
     start_date = models.DateField()
     end_date = models.DateField()
@@ -78,8 +81,15 @@ class Contract(models.Model):
         db_table = 'contracts'
         ordering = ['-start_date']
     
+    def save(self, *args, **kwargs):
+        # Snapshot name on save
+        if self.tenant and self.tenant.user:
+            self.archived_tenant_name = self.tenant.user.get_full_name()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
-        return f"Contract: {self.tenant.user.get_full_name()} - {self.house.house_number}"
+        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        return f"Contract: {name} - {self.house.house_number}"
 
 
 class Payment(models.Model):
@@ -100,7 +110,10 @@ class Payment(models.Model):
         ('other', 'Other'),
     ]
     
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='payments')
+    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
+    # SNAPSHOT FIELD
+    archived_tenant_name = models.CharField(max_length=150, blank=True)
+    
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_date = models.DateField()
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
@@ -114,9 +127,16 @@ class Payment(models.Model):
         db_table = 'payments'
         ordering = ['-payment_date']
     
+    def save(self, *args, **kwargs):
+        # Snapshot name on save
+        if self.tenant and self.tenant.user:
+            self.archived_tenant_name = self.tenant.user.get_full_name()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         status = "Verified" if self.is_verified else "Pending"
-        return f"{self.get_payment_type_display()}: {self.tenant.user.get_full_name()} - {status}"
+        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        return f"{self.get_payment_type_display()}: {name} - {status}"
 
 # --- BILLS (INVOICES) ---
 class Bill(models.Model):
@@ -129,7 +149,10 @@ class Bill(models.Model):
         ('other', 'Other'),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='bills')
+    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='bills')
+    # SNAPSHOT FIELD
+    archived_tenant_name = models.CharField(max_length=150, blank=True)
+    
     bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     month_for = models.DateField(help_text="Month this bill applies to")
@@ -140,19 +163,21 @@ class Bill(models.Model):
     class Meta:
         db_table = 'bills'
         ordering = ['-created_at']
+        
+    def save(self, *args, **kwargs):
+        # Snapshot name on save
+        if self.tenant and self.tenant.user:
+            self.archived_tenant_name = self.tenant.user.get_full_name()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Bill: {self.get_bill_type_display()} - {self.tenant.user.get_full_name()} ({self.amount})"
+        name = self.tenant.user.get_full_name() if self.tenant and self.tenant.user else self.archived_tenant_name
+        return f"Bill: {self.get_bill_type_display()} - {name} ({self.amount})"
 
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
 def release_house_on_tenant_delete(sender, instance, **kwargs):
-    """
-    When a Tenant is deleted (directly or via User deletion),
-    automatically revert their assigned House status to 'vacant'.
-    """
     if instance.house:
-        # print(f"Signal caught: Releasing House {instance.house.house_number}...")
         house = instance.house
         house.status = 'vacant'
         house.save()

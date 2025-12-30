@@ -11,7 +11,7 @@ class MaintenanceRequest(models.Model):
     ]
     
     STATUS_CHOICES = [
-        ('new', 'New'),  # ✅ ADDED THIS
+        ('new', 'New'),
         ('pending', 'Pending'),
         ('assigned', 'Assigned'),
         ('in_progress', 'In Progress'),
@@ -29,13 +29,17 @@ class MaintenanceRequest(models.Model):
     
     request_id = models.CharField(max_length=20, unique=True, editable=False)
     house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='maintenance_requests')
-    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reported_issues')
+    
+    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reported_issues')
+    # SNAPSHOT FIELD: Stores the name permanently
+    archived_reported_by = models.CharField(max_length=150, blank=True, help_text="Preserves user name if user is deleted")
+
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_tasks')
     
     issue_description = models.TextField()
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='general')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')  # ✅ CHANGED DEFAULT
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
     
     created_at = models.DateTimeField(auto_now_add=True)
     assigned_at = models.DateTimeField(null=True, blank=True)
@@ -50,21 +54,20 @@ class MaintenanceRequest(models.Model):
         ordering = ['-created_at']
     
     def save(self, *args, **kwargs):
-        # ---Enforce clean status ---
-        # This converts "Assigned " -> "assigned" automatically
         if self.status:
             self.status = self.status.lower().strip()
 
-        # Existing ID generation logic
+        # SNAPSHOT LOGIC: If there is a user, save their name to the text field
+        if self.reported_by and not self.archived_reported_by:
+            self.archived_reported_by = self.reported_by.get_full_name()
+
         if not self.request_id:
             last_request = MaintenanceRequest.objects.all().order_by('id').last()
             if last_request:
                 try:
-                    # Handle potential formatting errors in existing IDs
                     last_id = int(last_request.request_id.split('-')[1])
                     self.request_id = f'MR-{str(last_id + 1).zfill(3)}'
                 except (IndexError, ValueError):
-                    # Fallback if split fails
                     self.request_id = f'MR-{str(last_request.id + 1).zfill(3)}'
             else:
                 self.request_id = 'MR-001'
