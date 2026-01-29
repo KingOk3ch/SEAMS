@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Grid, Card, CardContent, CircularProgress, Alert, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, CardActionArea, Button,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tooltip
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import BuildIcon from '@mui/icons-material/Build';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
+import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate } from 'react-router-dom';
 
 function TenantDashboard() {
@@ -41,7 +42,6 @@ function TenantDashboard() {
 
       // --- 1. Fetch Tenant Profile ---
       const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, { headers });
-      
       if (!tenantResponse.ok) throw new Error("API Error");
 
       let tenants = await tenantResponse.json();
@@ -68,8 +68,19 @@ function TenantDashboard() {
       
       const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
       
-      // SORTING FIX: Pending (false) first, Verified (true) last
-      myPayments.sort((a, b) => (a.is_verified === b.is_verified) ? 0 : a.is_verified ? 1 : -1);
+      // SORTING: Pending (1) > Rejected (2) > Verified (3)
+      myPayments.sort((a, b) => {
+          const getScore = (p) => {
+              if (p.is_verified || p.status === 'verified') return 3;
+              if (p.status === 'rejected') return 2;
+              return 1;
+          };
+          const scoreA = getScore(a);
+          const scoreB = getScore(b);
+          
+          if (scoreA !== scoreB) return scoreA - scoreB; 
+          return new Date(b.payment_date) - new Date(a.payment_date); 
+      });
       
       setPayments(myPayments);
 
@@ -142,6 +153,13 @@ function TenantDashboard() {
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  // Status Chip Helper
+  const getStatusChip = (p) => {
+      if(p.status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
+      if(p.status === 'verified' || p.is_verified) return <Chip label="Verified" color="success" size="small" />;
+      return <Chip label="Pending" color="warning" size="small" />;
   };
 
   const activeMaintenanceCount = maintenance.filter(m => {
@@ -260,11 +278,14 @@ function TenantDashboard() {
                   <TableCell>{formatCurrency(payment.amount)}</TableCell>
                   <TableCell>{payment.payment_method.toUpperCase()}</TableCell>
                   <TableCell>
-                    <Chip 
-                        label={payment.is_verified ? "Verified" : "Pending"} 
-                        color={payment.is_verified ? "success" : "warning"} 
-                        size="small" 
-                    />
+                    <Box display="flex" alignItems="center" gap={1}>
+                        {getStatusChip(payment)}
+                        {payment.status === 'rejected' && (
+                            <Tooltip title={payment.rejection_reason || "No reason provided"}>
+                                <InfoIcon color="error" fontSize="small" style={{cursor:'pointer'}}/>
+                            </Tooltip>
+                        )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -292,7 +313,6 @@ function TenantDashboard() {
                     onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} 
                     fullWidth
                 >
-                    {/* Added penalty option just in case */}
                     {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
                 <TextField 
@@ -307,14 +327,14 @@ function TenantDashboard() {
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
                 
-                {/* 4 DIGIT RESTRICTION ADDED HERE */}
+                {/* 4 DIGIT RESTRICTION */}
                 <TextField 
                     label="Transaction Ref (Last 4 Digits)" 
                     value={payForm.reference} 
                     onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
                     fullWidth 
                     inputProps={{ maxLength: 4 }} 
-                    helperText="Enter only the last 4 characters"
+                    helperText="e.g. QK23"
                 />
             </Box>
         </DialogContent>

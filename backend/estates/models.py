@@ -97,8 +97,15 @@ class Payment(models.Model):
         ('garbage', 'Garbage Fee'),
         ('damage', 'Damage Repair'),
         ('deposit', 'Security Deposit'),
-        ('penalty', 'Late Payment Penalty'), ### FIX: ADDED THIS OPTION
+        ('penalty', 'Late Payment Penalty'),
         ('other', 'Other'),
+    ]
+
+    # --- NEW STATUS CHOICES ---
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
     ]
     
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='payments')
@@ -108,9 +115,14 @@ class Payment(models.Model):
     payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='rent')
     reference_number = models.CharField(max_length=50, blank=True)
     month_for = models.DateField(help_text="Month this payment covers")
+    
+    # Kept for backward compatibility, but 'status' is the new logic driver
     is_verified = models.BooleanField(default=False)
     
-    # Stores name permanently
+    # --- NEW FIELDS ---
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    rejection_reason = models.TextField(blank=True, null=True)
+    
     archived_tenant_name = models.CharField(max_length=255, blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -120,7 +132,7 @@ class Payment(models.Model):
         ordering = ['-payment_date']
     
     def __str__(self):
-        return f"{self.payment_type}: {self.tenant.user.get_full_name()} - {self.amount}"
+        return f"{self.payment_type}: {self.tenant.user.get_full_name()} - {self.status}"
 
 
 class Bill(models.Model):
@@ -140,7 +152,6 @@ class Bill(models.Model):
     description = models.TextField(blank=True, null=True)
     is_paid = models.BooleanField(default=False)
     
-    # Stores name permanently
     archived_tenant_name = models.CharField(max_length=255, blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)

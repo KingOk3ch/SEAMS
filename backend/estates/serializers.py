@@ -73,8 +73,6 @@ class PaymentSerializer(serializers.ModelSerializer):
     tenant_name = serializers.SerializerMethodField()
     house_number = serializers.SerializerMethodField()
     
-    # FIX: Explicitly allow tenant to be null/missing in input 
-    # (because Backend assigns it for Tenants, Admin sends it manually)
     tenant = serializers.PrimaryKeyRelatedField(
         queryset=Tenant.objects.all(), 
         required=False, 
@@ -86,7 +84,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'tenant', 'tenant_name', 'house_number', 'amount', 'payment_date',
             'payment_method', 'payment_type', 'reference_number',
-            'month_for', 'is_verified', 'created_at'
+            'month_for', 'is_verified', 'status', 'rejection_reason', 'created_at'
         ]
 
     def get_tenant_name(self, obj):

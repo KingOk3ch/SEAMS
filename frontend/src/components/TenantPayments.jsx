@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, Button, CircularProgress, Grid, Card, CardContent,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab, Tooltip
 } from '@mui/material';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
+import InfoIcon from '@mui/icons-material/Info';
 
 function TenantPayments() {
   const [tabIndex, setTabIndex] = useState(0);
@@ -20,8 +21,6 @@ function TenantPayments() {
 
   // Payment Dialog
   const [openPayDialog, setOpenPayDialog] = useState(false);
-  
-  // Track if fields should be locked (for "Pay This" feature)
   const [isBillPayment, setIsBillPayment] = useState(false);
 
   const [payForm, setPayForm] = useState({
@@ -61,15 +60,30 @@ function TenantPayments() {
       });
 
       if (myTenant) {
-        // Filter data for this tenant
         const myBills = billsData.filter(b => b.tenant === myTenant.id);
         const myPayments = paymentsData.filter(p => p.tenant === myTenant.id);
+
+        // --- SORTING LOGIC: Pending (1) > Rejected (2) > Verified (3) ---
+        myPayments.sort((a, b) => {
+            const getScore = (p) => {
+                // Verified/Completed -> Bottom
+                if (p.is_verified || p.status === 'verified') return 3;
+                // Rejected -> Middle
+                if (p.status === 'rejected') return 2;
+                // Pending (Actionable) -> Top
+                return 1;
+            };
+            const scoreA = getScore(a);
+            const scoreB = getScore(b);
+            
+            if (scoreA !== scoreB) return scoreA - scoreB; // Lower score first
+            return new Date(b.payment_date) - new Date(a.payment_date); // Newest date first
+        });
 
         setBills(myBills);
         setPayments(myPayments);
         setTenantData(myTenant);
 
-        // Balance = Sum of bills that are NOT paid
         const totalUnpaid = myBills
             .filter(b => !b.is_paid)
             .reduce((sum, b) => sum + parseFloat(b.amount), 0);
@@ -85,28 +99,29 @@ function TenantPayments() {
     }
   };
 
-  // --- SMART CHECK: Has this bill been paid but not verified yet? ---
+  // --- SMART CHECK ---
   const getBillStatus = (bill) => {
     if (bill.is_paid) return { label: "PAID", color: "success", canPay: false };
 
-    // Look for a payment that is PENDING, matches the AMOUNT and TYPE
+    // Find if there is a blocking payment.
+    // A payment blocks the bill ONLY if it is:
+    // 1. Not Verified AND
+    // 2. Not Rejected
     const pendingPayment = payments.find(p => 
-        !p.is_verified && 
+        (!p.is_verified && p.status !== 'rejected') && 
         parseFloat(p.amount) === parseFloat(bill.amount) && 
         p.payment_type === bill.bill_type
     );
 
     if (pendingPayment) {
-        // FIX: Display "Pending" if payment is made but not verified
         return { label: "Pending", color: "warning", canPay: false };
     }
 
     return { label: "UNPAID", color: "error", canPay: true };
   };
 
-  // Handler for "Pay This" button on a specific bill
   const handlePayBill = (bill) => {
-    setIsBillPayment(true); // Lock the fields
+    setIsBillPayment(true);
     setPayForm({
         ...payForm,
         amount: bill.amount,
@@ -117,9 +132,8 @@ function TenantPayments() {
     setOpenPayDialog(true);
   };
 
-  // Handler for generic "Make Payment" button
   const handleOpenGenericPayment = () => {
-    setIsBillPayment(false); // Unlock fields
+    setIsBillPayment(false);
     setPayForm({
         amount: '', payment_type: 'rent', method: 'bank', reference: '', 
         phone: '', payment_date: new Date().toISOString().split('T')[0]
@@ -166,6 +180,13 @@ function TenantPayments() {
   };
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
+
+  // Status Chip Helper
+  const getStatusChip = (p) => {
+      if(p.status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
+      if(p.status === 'verified' || p.is_verified) return <Chip label="Verified" color="success" size="small" />;
+      return <Chip label="Pending" color="warning" size="small" />;
+  };
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
@@ -220,7 +241,6 @@ function TenantPayments() {
                         <TableRow><TableCell colSpan={6} align="center">No bills found.</TableCell></TableRow>
                     ) : (
                         bills.map((bill) => {
-                            // Calculate status for each bill row
                             const status = getBillStatus(bill);
                             
                             return (
@@ -280,11 +300,14 @@ function TenantPayments() {
                                 <TableCell>{formatCurrency(p.amount)}</TableCell>
                                 <TableCell>{p.payment_method.toUpperCase()}</TableCell>
                                 <TableCell>
-                                    <Chip 
-                                        label={p.is_verified ? "Verified" : "Pending"} 
-                                        color={p.is_verified ? "success" : "warning"} 
-                                        size="small" 
-                                    />
+                                    <Box display="flex" alignItems="center" gap={1}>
+                                        {getStatusChip(p)}
+                                        {p.status === 'rejected' && (
+                                            <Tooltip title={p.rejection_reason || "No reason provided"}>
+                                                <InfoIcon color="error" fontSize="small" style={{cursor:'pointer'}}/>
+                                            </Tooltip>
+                                        )}
+                                    </Box>
                                 </TableCell>
                             </TableRow>
                         ))
@@ -338,7 +361,7 @@ function TenantPayments() {
                     value={payForm.reference} 
                     onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
                     fullWidth 
-                    inputProps={{ maxLength: 4 }}
+                    inputProps={{ maxLength: 4 }} 
                     helperText="Enter only the last 4 characters"
                 />
             </Box>

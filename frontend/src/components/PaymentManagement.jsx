@@ -17,6 +17,12 @@ function PaymentManagement() {
   
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [openBillDialog, setOpenBillDialog] = useState(false);
+  
+  // Reject Dialog
+  const [openRejectDialog, setOpenRejectDialog] = useState(false);
+  const [selectedPaymentId, setSelectedPaymentId] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  
   const [saving, setSaving] = useState(false);
 
   const [payForm, setPayForm] = useState({
@@ -48,13 +54,31 @@ function PaymentManagement() {
       // --- 1. Handle Payments ---
       let payData = await payRes.json();
       if (payData.results) payData = payData.results;
-      // Sort: Unverified (false) comes before Verified (true)
-      payData.sort((a, b) => (a.is_verified === b.is_verified) ? 0 : a.is_verified ? 1 : -1);
+      
+      // STRICT SORTING: Pending (1) -> Rejected (2) -> Verified (3)
+      payData.sort((a, b) => {
+          const getScore = (p) => {
+              // Verified (Bottom)
+              if (p.is_verified || p.status === 'verified') return 3;
+              // Rejected (Middle)
+              if (p.status === 'rejected') return 2;
+              // Pending/Unverified (Top)
+              return 1;
+          };
 
-      // --- 2. Handle Bills (Pending at Top) ---
+          const scoreA = getScore(a);
+          const scoreB = getScore(b);
+          
+          if (scoreA !== scoreB) return scoreA - scoreB; // Lower score first
+          
+          // Secondary Sort: Date (Newest first)
+          return new Date(b.payment_date) - new Date(a.payment_date);
+      });
+
+      // --- 2. Handle Bills ---
       let billData = await billRes.json();
       if (billData.results) billData = billData.results;
-      // Sort: Unpaid (false) comes before Paid (true)
+      // Sort: Unpaid bills on top
       billData.sort((a, b) => (a.is_paid === b.is_paid) ? 0 : a.is_paid ? 1 : -1);
 
       // --- 3. Handle Tenants ---
@@ -82,6 +106,36 @@ function PaymentManagement() {
         if(res.ok) fetchData();
         else alert("Verification failed");
     } catch(err) { alert("Error verifying"); }
+  };
+
+  const handleOpenReject = (id) => {
+      setSelectedPaymentId(id);
+      setRejectReason('');
+      setOpenRejectDialog(true);
+  };
+
+  const handleRejectPayment = async () => {
+      if(!rejectReason.trim()) {
+          alert("Please provide a reason.");
+          return;
+      }
+      setSaving(true);
+      try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch(`http://localhost:8000/api/payments/${selectedPaymentId}/reject/`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: rejectReason })
+        });
+        if(res.ok) {
+            alert("Payment Rejected & Tenant Notified.");
+            setOpenRejectDialog(false);
+            fetchData();
+        } else {
+            alert("Failed to reject payment.");
+        }
+      } catch(err) { alert("Network Error"); }
+      finally { setSaving(false); }
   };
 
   const handleSavePayment = async () => {
@@ -116,6 +170,12 @@ function PaymentManagement() {
   };
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
+
+  const getStatusChip = (status, is_verified) => {
+      if (status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
+      if (status === 'verified' || is_verified) return <Chip label="Verified" color="success" size="small" />;
+      return <Chip label="Pending" color="warning" size="small" />;
+  };
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
@@ -158,8 +218,12 @@ function PaymentManagement() {
                             const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
                             const house = t ? (t.house_number || (t.house ? t.house.house_number : '')) : '';
 
+                            // Only show actions if Pending (Score 1)
+                            // Must check legacy (not verified) and new status (not rejected)
+                            const isActionable = !p.is_verified && p.status !== 'verified' && p.status !== 'rejected';
+
                             return (
-                            <TableRow key={p.id}> {/* HIGHLIGHTING REMOVED */}
+                            <TableRow key={p.id}>
                                 <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
                                 <TableCell>{name} ({house})</TableCell>
                                 <TableCell>{p.payment_type.toUpperCase()}</TableCell>
@@ -169,17 +233,46 @@ function PaymentManagement() {
                                     <Typography variant="caption" display="block">{p.payment_method}</Typography>
                                 </TableCell>
                                 <TableCell>
-                                    <Chip 
-                                        label={p.is_verified ? "Verified" : "Pending"} 
-                                        color={p.is_verified ? "success" : "warning"} 
-                                        size="small" 
-                                    />
+                                    {getStatusChip(p.status, p.is_verified)}
                                 </TableCell>
                                 <TableCell>
-                                    {!p.is_verified && (
-                                        <Button size="small" variant="contained" onClick={() => handleVerifyPayment(p.id)}>
-                                            Verify
-                                        </Button>
+                                    {/* Action Buttons: Only show if Actionable */}
+                                    {isActionable && (
+                                        <Box display="flex" gap={1}>
+                                            <Button 
+                                                size="small" 
+                                                variant="contained" 
+                                                color="primary" 
+                                                onClick={() => handleVerifyPayment(p.id)}
+                                                sx={{ 
+                                                    borderRadius: '50px', 
+                                                    textTransform: 'none',
+                                                    fontWeight: 'medium',
+                                                    px: 2
+                                                }}
+                                            >
+                                                Verify
+                                            </Button>
+                                            <Button 
+                                                size="small" 
+                                                variant="contained" 
+                                                color="error" 
+                                                onClick={() => handleOpenReject(p.id)}
+                                                sx={{ 
+                                                    borderRadius: '50px', 
+                                                    textTransform: 'none',
+                                                    fontWeight: 'medium',
+                                                    px: 2
+                                                }}
+                                            >
+                                                Reject
+                                            </Button>
+                                        </Box>
+                                    )}
+                                    {p.status === 'rejected' && (
+                                        <Typography variant="caption" color="error">
+                                            {p.rejection_reason || "Invalid"}
+                                        </Typography>
                                     )}
                                 </TableCell>
                             </TableRow>
@@ -238,7 +331,33 @@ function PaymentManagement() {
         </>
       )}
 
-      {/* DIALOGS */}
+      {/* REJECT DIALOG */}
+      <Dialog open={openRejectDialog} onClose={() => setOpenRejectDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Reject Payment</DialogTitle>
+        <DialogContent>
+            <Typography variant="body2" gutterBottom>
+                Please explain why this payment is being rejected. The tenant will receive a notification.
+            </Typography>
+            <TextField
+                autoFocus
+                margin="dense"
+                label="Rejection Reason"
+                fullWidth
+                variant="outlined"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g. Transaction ID not found in M-Pesa statement"
+            />
+        </DialogContent>
+        <DialogActions>
+            <Button onClick={() => setOpenRejectDialog(false)}>Cancel</Button>
+            <Button onClick={handleRejectPayment} variant="contained" color="error" disabled={saving}>
+                {saving ? "Rejecting..." : "Confirm Reject"}
+            </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* MANUAL PAYMENT DIALOG */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Record Manual Payment</DialogTitle>
         <DialogContent>
@@ -260,7 +379,6 @@ function PaymentManagement() {
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                 </TextField>
-                {/* 4 DIGIT RESTRICTION */}
                 <TextField 
                     label="Transaction Ref (Last 4 Digits)" 
                     value={payForm.reference_number} 
@@ -277,6 +395,7 @@ function PaymentManagement() {
         </DialogActions>
       </Dialog>
 
+      {/* BILL DIALOG */}
       <Dialog open={openBillDialog} onClose={() => setOpenBillDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Post New Bill</DialogTitle>
         <DialogContent>
