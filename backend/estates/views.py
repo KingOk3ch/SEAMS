@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from datetime import date, timedelta
+from django.db import IntegrityError
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 
@@ -42,10 +43,6 @@ class TenantViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """
-        Optimize performance and security: 
-        Tenants only see their own profile. Admins see all.
-        """
         user = self.request.user
         if getattr(user, 'role', None) == 'tenant':
             return Tenant.objects.filter(user=user)
@@ -53,7 +50,6 @@ class TenantViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
-        
         if response.status_code == 201:
             house_id = request.data.get('house')
             try:
@@ -62,7 +58,6 @@ class TenantViewSet(viewsets.ModelViewSet):
                 house.save()
             except House.DoesNotExist:
                 pass
-        
         return response
 
     @action(detail=False, methods=['get'])
@@ -90,48 +85,79 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if getattr(user, 'role', None) == 'tenant':
-            # Tenants only see their own payments
-            return Payment.objects.filter(tenant__user=user)
-        return Payment.objects.all()
+            return Payment.objects.filter(tenant__user=user).order_by('-payment_date')
+        return Payment.objects.all().order_by('-payment_date')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("\n❌ PAYMENT VALIDATION FAILED:")
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            print(f"❌ PAYMENT SAVE ERROR: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_create(self, serializer):
         user = self.request.user
-        # Security Logic: Admin -> Verified, Tenant -> Pending
-        is_verified = False
+        tenant_name = "Unknown"
+        
+        # 1. Admin Creating Payment (Manually recording for a tenant)
         if getattr(user, 'role', None) == 'estate_admin':
-            is_verified = True
-        serializer.save(is_verified=is_verified)
+            # Extract tenant from the validated data
+            tenant_obj = serializer.validated_data.get('tenant')
+            if tenant_obj and tenant_obj.user:
+                tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
+            
+            serializer.save(is_verified=True, archived_tenant_name=tenant_name)
+            
+        # 2. Tenant Creating Payment (Paying for themselves)
+        elif getattr(user, 'role', None) == 'tenant':
+            try:
+                tenant_profile = Tenant.objects.get(user=user)
+                if tenant_profile.user:
+                    tenant_name = tenant_profile.user.get_full_name() or tenant_profile.user.username
+                
+                # Auto-assign tenant and the name
+                serializer.save(is_verified=False, tenant=tenant_profile, archived_tenant_name=tenant_name)
+            except Tenant.DoesNotExist:
+                raise IntegrityError("No Tenant Profile found for this user.")
+        
+        # 3. Fallback
+        else:
+            serializer.save(is_verified=False, archived_tenant_name=tenant_name)
 
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
-        """
-        Admin action to verify a payment manually.
-        Automatically finds and clears matching Bills.
-        """
         if getattr(request.user, 'role', None) != 'estate_admin':
             return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
             
         payment = self.get_object()
-        
         if payment.is_verified:
              return Response({'status': 'warning', 'message': 'Payment was already verified'})
 
         payment.is_verified = True
         payment.save()
 
-        # --- LOGIC TO LINK PAYMENT TO BILL ---
-        # If this payment is for a specific bill type (e.g. Water), mark that bill as paid.
-        if payment.payment_type in ['water', 'electricity', 'garbage', 'damage', 'other']:
-            # Find unpaid bills for this tenant, same type, matching month/year
+        # Link Payment to Bill Logic
+        if payment.payment_type in ['water', 'electricity', 'garbage', 'damage', 'other', 'rent']:
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
                 bill_type=payment.payment_type,
-                is_paid=False,
-                month_for__year=payment.month_for.year,
-                month_for__month=payment.month_for.month
+                is_paid=False
             )
+            
+            if payment.month_for:
+                 matching_bills = matching_bills.filter(
+                    month_for__year=payment.month_for.year,
+                    month_for__month=payment.month_for.month
+                 )
 
-            # Check if payment covers the bill
             bills_cleared = 0
             remaining_amount = payment.amount
 
@@ -156,6 +182,30 @@ class BillViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if getattr(user, 'role', None) == 'tenant':
-            # Tenant sees only their bills
-            return Bill.objects.filter(tenant__user=user)
-        return Bill.objects.all()
+            return Bill.objects.filter(tenant__user=user).order_by('-created_at')
+        return Bill.objects.all().order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("\n❌ BILL VALIDATION FAILED:")
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            print(f"❌ BILL SAVE ERROR: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_create(self, serializer):
+        # FIX: Populate archived_tenant_name for Bills too
+        tenant_obj = serializer.validated_data.get('tenant')
+        tenant_name = "Unknown"
+        
+        if tenant_obj and tenant_obj.user:
+            tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
+            
+        serializer.save(archived_tenant_name=tenant_name)

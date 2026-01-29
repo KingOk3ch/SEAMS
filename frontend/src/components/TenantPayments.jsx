@@ -21,7 +21,9 @@ function TenantPayments() {
   // Payment Dialog
   const [openPayDialog, setOpenPayDialog] = useState(false);
   
-  // Default method changed to 'bank' (since M-Pesa is now manual only)
+  // Track if fields should be locked (for "Pay This" feature)
+  const [isBillPayment, setIsBillPayment] = useState(false);
+
   const [payForm, setPayForm] = useState({
     amount: '', payment_type: 'rent', method: 'bank', reference: '', 
     phone: '', payment_date: new Date().toISOString().split('T')[0]
@@ -44,12 +46,19 @@ function TenantPayments() {
         fetch('http://localhost:8000/api/tenants/', { headers })
       ]);
 
-      const billsData = await billsRes.json();
-      const paymentsData = await paymentsRes.json();
-      const allTenants = await tenantsRes.json();
+      let billsData = await billsRes.json();
+      if(billsData.results) billsData = billsData.results;
+
+      let paymentsData = await paymentsRes.json();
+      if(paymentsData.results) paymentsData = paymentsData.results;
+
+      let allTenants = await tenantsRes.json();
+      if(allTenants.results) allTenants = allTenants.results;
       
-      // TenantViewSet is now filtered, but just in case we filter here too
-      const myTenant = allTenants.find(t => t.user.id === user.id) || allTenants[0];
+      const myTenant = allTenants.find(t => {
+          const uId = t.user.id || t.user;
+          return String(uId) === String(user.id);
+      });
 
       if (myTenant) {
         // Filter data for this tenant
@@ -60,15 +69,12 @@ function TenantPayments() {
         setPayments(myPayments);
         setTenantData(myTenant);
 
-        // Calculate Balance: (Rent + Unpaid Bills) - (Verified Payments)
-        // Note: We use a ledger approach. Total owed vs Total paid.
-        const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
-        const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
-        const totalPaid = myPayments
-            .filter(p => p.is_verified)
-            .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        // Balance = Sum of bills that are NOT paid
+        const totalUnpaid = myBills
+            .filter(b => !b.is_paid)
+            .reduce((sum, b) => sum + parseFloat(b.amount), 0);
         
-        setOutstandingBalance((rentDue + totalBills) - totalPaid);
+        setOutstandingBalance(totalUnpaid);
       }
 
       setLoading(false);
@@ -79,12 +85,44 @@ function TenantPayments() {
     }
   };
 
+  // --- SMART CHECK: Has this bill been paid but not verified yet? ---
+  const getBillStatus = (bill) => {
+    if (bill.is_paid) return { label: "PAID", color: "success", canPay: false };
+
+    // Look for a payment that is PENDING, matches the AMOUNT and TYPE
+    const pendingPayment = payments.find(p => 
+        !p.is_verified && 
+        parseFloat(p.amount) === parseFloat(bill.amount) && 
+        p.payment_type === bill.bill_type
+    );
+
+    if (pendingPayment) {
+        // FIX: Display "Pending" if payment is made but not verified
+        return { label: "Pending", color: "warning", canPay: false };
+    }
+
+    return { label: "UNPAID", color: "error", canPay: true };
+  };
+
+  // Handler for "Pay This" button on a specific bill
   const handlePayBill = (bill) => {
+    setIsBillPayment(true); // Lock the fields
     setPayForm({
         ...payForm,
         amount: bill.amount,
-        payment_type: bill.bill_type,
-        description: `Payment for Bill #${bill.id}`
+        payment_type: bill.bill_type, 
+        payment_date: new Date().toISOString().split('T')[0],
+        reference: '' 
+    });
+    setOpenPayDialog(true);
+  };
+
+  // Handler for generic "Make Payment" button
+  const handleOpenGenericPayment = () => {
+    setIsBillPayment(false); // Unlock fields
+    setPayForm({
+        amount: '', payment_type: 'rent', method: 'bank', reference: '', 
+        phone: '', payment_date: new Date().toISOString().split('T')[0]
     });
     setOpenPayDialog(true);
   };
@@ -117,7 +155,8 @@ function TenantPayments() {
             setOpenPayDialog(false);
             fetchData();
         } else {
-            alert("Failed to record payment");
+            const errData = await res.json();
+            alert(`Failed: ${JSON.stringify(errData)}`);
         }
     } catch (err) {
         alert("Network error");
@@ -134,7 +173,7 @@ function TenantPayments() {
     <Container maxWidth="lg">
       <Box mb={4} display="flex" justifyContent="space-between" alignItems="center">
         <Typography variant="h4" fontWeight="bold">My Payments & Bills</Typography>
-        <Button variant="contained" color="success" startIcon={<AddCardIcon />} onClick={() => setOpenPayDialog(true)}>
+        <Button variant="contained" color="success" startIcon={<AddCardIcon />} onClick={handleOpenGenericPayment}>
             Make Payment
         </Button>
       </Box>
@@ -180,30 +219,37 @@ function TenantPayments() {
                     {bills.length === 0 ? (
                         <TableRow><TableCell colSpan={6} align="center">No bills found.</TableCell></TableRow>
                     ) : (
-                        bills.map((bill) => (
-                            <TableRow key={bill.id}>
-                                <TableCell>{new Date(bill.created_at).toLocaleDateString()}</TableCell>
-                                <TableCell><Chip label={bill.bill_type.toUpperCase()} variant="outlined" /></TableCell>
-                                <TableCell fontWeight="bold">{formatCurrency(bill.amount)}</TableCell>
-                                <TableCell>{bill.description || '-'}</TableCell>
-                                <TableCell>
-                                    <Chip 
-                                        label={bill.is_paid ? "PAID" : "UNPAID"} 
-                                        color={bill.is_paid ? "success" : "error"} 
-                                        size="small"
-                                    />
-                                </TableCell>
-                                <TableCell>
-                                    {!bill.is_paid ? (
-                                        <Button size="small" variant="contained" onClick={() => handlePayBill(bill)}>
-                                            Pay This
-                                        </Button>
-                                    ) : (
-                                        <Typography variant="caption" color="textSecondary">Completed</Typography>
-                                    )}
-                                </TableCell>
-                            </TableRow>
-                        ))
+                        bills.map((bill) => {
+                            // Calculate status for each bill row
+                            const status = getBillStatus(bill);
+                            
+                            return (
+                                <TableRow key={bill.id}>
+                                    <TableCell>{new Date(bill.created_at).toLocaleDateString()}</TableCell>
+                                    <TableCell><Chip label={bill.bill_type.toUpperCase()} variant="outlined" /></TableCell>
+                                    <TableCell fontWeight="bold">{formatCurrency(bill.amount)}</TableCell>
+                                    <TableCell>{bill.description || '-'}</TableCell>
+                                    <TableCell>
+                                        <Chip 
+                                            label={status.label} 
+                                            color={status.color} 
+                                            size="small"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        {status.canPay ? (
+                                            <Button size="small" variant="contained" onClick={() => handlePayBill(bill)}>
+                                                Pay This
+                                            </Button>
+                                        ) : (
+                                            <Typography variant="caption" color="textSecondary">
+                                                {status.label === 'Pending' ? 'Verifying...' : 'Completed'}
+                                            </Typography>
+                                        )}
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })
                     )}
                 </TableBody>
             </Table>
@@ -250,7 +296,7 @@ function TenantPayments() {
 
       {/* --- DIALOG --- */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Make a Payment</DialogTitle>
+        <DialogTitle>{isBillPayment ? "Pay Bill" : "Make a Payment"}</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextField 
@@ -259,6 +305,8 @@ function TenantPayments() {
                     value={payForm.amount} 
                     onChange={(e) => setPayForm({...payForm, amount: e.target.value})} 
                     fullWidth 
+                    // FIX: Lock field if paying a specific bill
+                    disabled={isBillPayment}
                 />
                 <TextField 
                     select 
@@ -266,8 +314,11 @@ function TenantPayments() {
                     value={payForm.payment_type} 
                     onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} 
                     fullWidth
+                    // FIX: Lock field if paying a specific bill
+                    disabled={isBillPayment}
                 >
-                    {['rent','water','electricity','garbage','damage','deposit','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
+                    {/* Added 'penalty' to list */}
+                    {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
                 <TextField 
                     select 
@@ -281,13 +332,14 @@ function TenantPayments() {
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
                 
-                {/* Manual Phone/Ref Input */}
+                {/* 4 DIGIT RESTRICTION */}
                 <TextField 
-                    label="Reference / Phone Number" 
+                    label="Transaction Ref (Last 4 Digits)" 
                     value={payForm.reference} 
                     onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
                     fullWidth 
-                    helperText="Enter M-Pesa code or Bank Ref"
+                    inputProps={{ maxLength: 4 }}
+                    helperText="Enter only the last 4 characters"
                 />
             </Box>
         </DialogContent>

@@ -19,16 +19,75 @@ function Layout({ children, onLogout }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   
+  // --- NEW: Badge State for Payments/Bills ---
+  const [paymentBadgeCount, setPaymentBadgeCount] = useState(0);
+  
   const navigate = useNavigate();
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   useEffect(() => {
+    // Initial fetch
     fetchNotifications();
-    // Poll every 30 seconds for new notifications
-    const interval = setInterval(fetchNotifications, 30000);
+    fetchPaymentBadge();
+
+    // Poll every 5 seconds for instant updates
+    const interval = setInterval(() => {
+        fetchNotifications();
+        fetchPaymentBadge();
+    }, 5000); 
+
     return () => clearInterval(interval);
   }, []);
+
+  // --- LOGIC: Fetch Pending Payments (Admin) or Unpaid Bills (Tenant) ---
+  const fetchPaymentBadge = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const role = user.role;
+      let url = '';
+      let filterFn = () => false;
+
+      // 1. ADMIN: Count Unverified Payments
+      if (role === 'estate_admin') {
+        url = 'http://localhost:8000/api/payments/';
+        filterFn = (item) => item.is_verified === false;
+      } 
+      // 2. TENANT: Count Unpaid Bills
+      else if (role === 'tenant') {
+        url = 'http://localhost:8000/api/bills/';
+        filterFn = (item) => item.is_paid === false;
+      } 
+      else {
+        return; // Other roles don't need this badge
+      }
+
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        let data = await response.json();
+        
+        // Handle Pagination (Extract results if wrapped)
+        if (data.results) {
+            data = data.results;
+        }
+        
+        // Safety check and Count
+        if (Array.isArray(data)) {
+            // For tenants, ensuring we filter only THEIR bills is handled by the backend typically,
+            // but the filterFn ensures we only count unpaid ones.
+            const count = data.filter(filterFn).length;
+            setPaymentBadgeCount(count);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch payment badge", err);
+    }
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -105,7 +164,7 @@ function Layout({ children, onLogout }) {
     if (role === 'tenant') {
       return [
         { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' },
-        { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' }, // <--- NEW LINK
+        { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' },
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
       ];
     }
@@ -121,19 +180,31 @@ function Layout({ children, onLogout }) {
       </Toolbar>
       <Divider />
       <List sx={{ flexGrow: 1 }}>
-        {getMenuItems().map((item) => (
-          <ListItem key={item.text} disablePadding>
-            <ListItemButton 
-              onClick={() => { navigate(item.path); setMobileOpen(false); }}
-              selected={location.pathname === item.path}
-            >
-              <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
-        ))}
+        {getMenuItems().map((item) => {
+          // --- DETECT PAYMENT TAB ---
+          const isPaymentItem = item.text.includes('Payment') || item.text.includes('Bills');
+
+          return (
+            <ListItem key={item.text} disablePadding>
+              <ListItemButton 
+                onClick={() => { navigate(item.path); setMobileOpen(false); }}
+                selected={location.pathname === item.path}
+              >
+                <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
+                  {/* --- APPLY BADGE HERE --- */}
+                  {isPaymentItem ? (
+                    <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
+                      {item.icon}
+                    </Badge>
+                  ) : (
+                    item.icon
+                  )}
+                </ListItemIcon>
+                <ListItemText primary={item.text} />
+              </ListItemButton>
+            </ListItem>
+          );
+        })}
       </List>
       <Divider />
       <List>

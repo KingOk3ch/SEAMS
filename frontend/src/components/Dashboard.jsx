@@ -24,7 +24,6 @@ import {
   TableRow,
   Paper,
   Tooltip,
-  // Added Imports for Dialog
   Dialog,
   DialogTitle,
   DialogContent,
@@ -249,8 +248,6 @@ function Dashboard() {
     setTimeout(() => setActionMessage({ type: '', text: '' }), 3000);
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
-
   // --- UI Components ---
 
   const StatCard = ({ title, value, subtitle, icon, color, onClick, hasBadge }) => (
@@ -287,6 +284,22 @@ function Dashboard() {
       </CardContent>
     </Card>
   );
+
+  // --- SAFE RENDERING START ---
+  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+
+  // FIXED: If backend failed and stats is null, show error instead of crashing
+  if (!stats) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Typography variant="h4" fontWeight="bold" gutterBottom>Dashboard</Typography>
+        <Alert severity="error">
+          {error || "Unable to load dashboard data. The backend server might be down or returning an error."}
+        </Alert>
+      </Container>
+    );
+  }
+  // --- SAFE RENDERING END ---
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>

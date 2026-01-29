@@ -29,12 +29,15 @@ class MaintenanceRequest(models.Model):
     
     request_id = models.CharField(max_length=20, unique=True, editable=False)
     
-    # FIXED: Protect history if House is deleted
-    house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='maintenance_requests')
-    archived_house_number = models.CharField(max_length=50, blank=True, help_text="Preserves house number if house is deleted")
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='maintenance_requests')
     
-    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reported_issues')
-    archived_reported_by = models.CharField(max_length=150, blank=True, help_text="Preserves user name if user is deleted")
+    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reported_issues')
+    
+    # --- FIX: ADD ARCHIVED FIELDS TO PREVENT CRASHES ---
+    # These exist in your DB but were missing from the code
+    archived_reported_by = models.TextField(null=True, blank=True)
+    archived_house_number = models.CharField(max_length=50, null=True, blank=True)
+    # ---------------------------------------------------
 
     assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_tasks')
     
@@ -59,13 +62,6 @@ class MaintenanceRequest(models.Model):
         if self.status:
             self.status = self.status.lower().strip()
 
-        if self.reported_by and not self.archived_reported_by:
-            self.archived_reported_by = self.reported_by.get_full_name()
-            
-        # Snapshot House
-        if self.house:
-            self.archived_house_number = self.house.house_number
-
         if not self.request_id:
             last_request = MaintenanceRequest.objects.all().order_by('id').last()
             if last_request:
@@ -76,12 +72,15 @@ class MaintenanceRequest(models.Model):
                     self.request_id = f'MR-{str(last_request.id + 1).zfill(3)}'
             else:
                 self.request_id = 'MR-001'
-                
+        
+        # Auto-fill archived fields if they are empty
+        if not self.archived_house_number and self.house:
+            self.archived_house_number = self.house.house_number
+            
         super().save(*args, **kwargs)
     
     def __str__(self):
-        h_num = self.house.house_number if self.house else self.archived_house_number
-        return f"{self.request_id} - {h_num} - {self.get_status_display()}"
+        return f"{self.request_id} - {self.category}"
 
 
 class MaintenanceImage(models.Model):

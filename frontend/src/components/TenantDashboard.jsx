@@ -1,29 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Typography,
-  Box,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  CircularProgress,
-  Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  CardActionArea,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  MenuItem
+  Container, Typography, Box, Paper, Grid, Card, CardContent, CircularProgress, Alert, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, CardActionArea, Button,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import BuildIcon from '@mui/icons-material/Build';
@@ -60,13 +39,18 @@ function TenantDashboard() {
       const user = JSON.parse(localStorage.getItem('user'));
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // 1. Fetch Tenant Profile
+      // --- 1. Fetch Tenant Profile ---
       const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, { headers });
-      const tenants = await tenantResponse.json();
       
-      // FIX: Safe Tenant Search with Strict Equality
-      // We convert both IDs to String to safely compare "5" (string) vs 5 (number)
-      const myTenant = tenants.find(t => String(t.user.id) === String(user.id));
+      if (!tenantResponse.ok) throw new Error("API Error");
+
+      let tenants = await tenantResponse.json();
+      if (tenants.results) tenants = tenants.results;
+
+      const myTenant = tenants.find(t => {
+          const tenantUserId = (t.user && typeof t.user === 'object' && t.user.id) ? t.user.id : t.user;
+          return String(tenantUserId) === String(user.id);
+      });
       
       if (!myTenant) {
         setError('Tenant profile not found. Please contact admin.');
@@ -77,42 +61,41 @@ function TenantDashboard() {
       setTenantData(myTenant);
       setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
 
-      // 2. Fetch Payments
+      // --- 2. Fetch Payments ---
       const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
       let allPayments = await paymentsResponse.json();
       if (allPayments.results) allPayments = allPayments.results;
       
       const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
+      
+      // SORTING FIX: Pending (false) first, Verified (true) last
+      myPayments.sort((a, b) => (a.is_verified === b.is_verified) ? 0 : a.is_verified ? 1 : -1);
+      
       setPayments(myPayments);
 
-      // 3. Fetch Bills & Calculate Balance
+      // --- 3. Fetch Bills & Calculate Balance ---
       const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
       let allBills = await billsResponse.json();
       if (allBills.results) allBills = allBills.results;
       
       const myBills = allBills.filter(b => b.tenant === myTenant.id);
 
-      const rentDue = parseFloat(myTenant.house?.rent_amount || 0);
-      const totalBills = myBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
-      const totalPaid = myPayments
-          .filter(p => p.is_verified)
-          .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalUnpaid = myBills
+          .filter(b => !b.is_paid)
+          .reduce((sum, b) => sum + parseFloat(b.amount), 0);
       
-      setOutstandingBalance((rentDue + totalBills) - totalPaid);
+      setOutstandingBalance(totalUnpaid);
 
-      // 4. Fetch My Maintenance - NO FILTERING, backend handles it
+      // --- 4. Fetch My Maintenance ---
       const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
       let allMaintenance = await maintenanceResponse.json();
       if (allMaintenance.results) allMaintenance = allMaintenance.results;
 
-      // ✅ REMOVED FRONTEND FILTERING - Backend already filters by user and status
       setMaintenance(allMaintenance);
-
       setLoading(false);
     } catch (err) {
-      setError('Failed to load data. Please check your connection.');
+      setError('Failed to load data.');
       setLoading(false);
-      console.error('Error:', err);
     }
   };
 
@@ -161,7 +144,6 @@ function TenantDashboard() {
     return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  // --- LOGIC: Calculate 'Active' Requests (including 'new') ---
   const activeMaintenanceCount = maintenance.filter(m => {
     const status = (m.status || '').toString().toLowerCase().trim();
     return ['new', 'pending', 'assigned', 'in_progress'].includes(status);
@@ -221,8 +203,6 @@ function TenantDashboard() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        
-        {/* Outstanding Balance Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
@@ -234,7 +214,6 @@ function TenantDashboard() {
           />
         </Grid>
 
-        {/* House Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
@@ -245,7 +224,6 @@ function TenantDashboard() {
           />
         </Grid>
 
-        {/* Maintenance Card */}
         <Grid item xs={12} md={4}>
           <DashboardCard 
             icon={<BuildIcon color="warning" sx={{ fontSize: 40 }} />}
@@ -314,7 +292,8 @@ function TenantDashboard() {
                     onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} 
                     fullWidth
                 >
-                    {['rent','water','electricity','garbage','damage','deposit','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
+                    {/* Added penalty option just in case */}
+                    {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
                 <TextField 
                     select 
@@ -328,12 +307,14 @@ function TenantDashboard() {
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
                 
+                {/* 4 DIGIT RESTRICTION ADDED HERE */}
                 <TextField 
-                    label="Reference Number / Transaction Code" 
+                    label="Transaction Ref (Last 4 Digits)" 
                     value={payForm.reference} 
                     onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
                     fullWidth 
-                    helperText="e.g. QK23... or Bank Ref"
+                    inputProps={{ maxLength: 4 }} 
+                    helperText="Enter only the last 4 characters"
                 />
             </Box>
         </DialogContent>

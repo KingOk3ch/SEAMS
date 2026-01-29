@@ -41,21 +41,20 @@ function MaintenanceRequests() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
-  // Responsive Hooks
   const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('md')); // True on mobile screens
+  const fullScreen = useMediaQuery(theme.breakpoints.down('md')); 
 
-  // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
   
-  // Data States
   const [currentRequest, setCurrentRequest] = useState(null);
   const [selectedTechnician, setSelectedTechnician] = useState('');
   const [userRole, setUserRole] = useState('');
-  const [tenantHouse, setTenantHouse] = useState(null);
+  
+  // Stores simple string for display, e.g. "House B2"
+  const [tenantHouseDisplay, setTenantHouseDisplay] = useState("Checking assignment...");
   const [selectedImages, setSelectedImages] = useState([]);
   
   const [formData, setFormData] = useState({
@@ -68,64 +67,86 @@ function MaintenanceRequests() {
   });
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user'));
-    setUserRole(user.role);
-    fetchData();
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+        try {
+            const user = JSON.parse(storedUser);
+            setUserRole(user.role || '');
+            fetchData();
+        } catch (e) {
+            console.error("Failed to parse user data", e);
+            setLoading(false);
+        }
+    } else {
+        setLoading(false);
+    }
   }, []);
 
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('access_token');
       const user = JSON.parse(localStorage.getItem('user'));
+      const headers = { 'Authorization': `Bearer ${token}` };
       
-      const requestsResponse = await fetch('http://localhost:8000/api/maintenance/', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const requestsResponse = await fetch('http://localhost:8000/api/maintenance/', { headers });
+      if (!requestsResponse.ok) throw new Error("Failed to fetch requests");
+      
       const requestsData = await requestsResponse.json();
-      
       let filteredRequests = requestsData;
       
       if (user.role === 'tenant') {
-        // Show only requests reported by this tenant
-        filteredRequests = requestsData.filter(m => m.reported_by == user.id);
+        filteredRequests = requestsData.filter(m => String(m.reported_by) === String(user.id));
         
-        // Fetch tenant's house for auto-filling
-        const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const tenantsData = await tenantsResponse.json();
-        const myTenant = tenantsData.find(t => t.user.id === user.id);
-        if (myTenant) {
-          setTenantHouse(myTenant.house);
+        // --- FETCH TENANT PROFILE TO SHOW HOUSE ---
+        const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', { headers });
+        if (tenantsResponse.ok) {
+            let tenantsData = await tenantsResponse.json();
+            if (tenantsData.results) tenantsData = tenantsData.results;
+
+            if (Array.isArray(tenantsData)) {
+                // Find MY tenant record
+                const myTenant = tenantsData.find(t => {
+                     const tUserId = (t.user && t.user.id) ? t.user.id : t.user;
+                     return String(tUserId) === String(user.id);
+                });
+
+                if (myTenant) {
+                    if (myTenant.house) {
+                        // Use house_number from API or fallback
+                        const hNum = myTenant.house_number || `House ID: ${myTenant.house}`;
+                        setTenantHouseDisplay(hNum);
+                    } else {
+                        setTenantHouseDisplay("Not Assigned (Contact Admin)");
+                    }
+                } else {
+                    setTenantHouseDisplay("Profile Not Found");
+                }
+            }
         }
       } else if (user.role === 'technician') {
-        // Show only requests assigned to this technician
-        filteredRequests = requestsData.filter(m => m.assigned_to == user.id);
+        filteredRequests = requestsData.filter(m => String(m.assigned_to) === String(user.id));
       }
       
       setRequests(filteredRequests);
 
-      // Admin fetches extra data (Houses and Technicians)
+      // Admin fetches extra data
       if (user.role === 'estate_admin') {
-        const housesResponse = await fetch('http://localhost:8000/api/houses/', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const housesData = await housesResponse.json();
-        setHouses(housesData);
+        const housesResponse = await fetch('http://localhost:8000/api/houses/', { headers });
+        if (housesResponse.ok) setHouses(await housesResponse.json());
 
-        const usersResponse = await fetch('http://localhost:8000/api/users/', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const usersData = await usersResponse.json();
-        const techUsers = usersData.filter(user => user.role === 'technician');
-        setTechnicians(techUsers);
+        const usersResponse = await fetch('http://localhost:8000/api/users/', { headers });
+        if (usersResponse.ok) {
+            const usersData = await usersResponse.json();
+            const techUsers = usersData.filter(user => user.role === 'technician');
+            setTechnicians(techUsers);
+        }
       }
 
       setLoading(false);
     } catch (err) {
+      console.error('Error fetching data:', err);
       setError('Connection error');
       setLoading(false);
-      console.error('Error:', err);
     }
   };
 
@@ -145,26 +166,14 @@ function MaintenanceRequests() {
       setEditMode(false);
       setCurrentRequest(null);
       
-      // Auto-fill house for tenants
-      if (userRole === 'tenant') {
-        setFormData({
-          house: tenantHouse,
-          issue_description: '',
-          category: 'general',
-          priority: 'medium',
-          status: 'pending',
-          estimated_cost: ''
-        });
-      } else {
-        setFormData({
-          house: '',
-          issue_description: '',
-          category: 'general',
-          priority: 'medium',
-          status: 'pending',
-          estimated_cost: ''
-        });
-      }
+      setFormData({
+        house: '', 
+        issue_description: '',
+        category: 'general',
+        priority: 'medium',
+        status: 'pending',
+        estimated_cost: ''
+      });
     }
     setSelectedImages([]);
     setOpenDialog(true);
@@ -180,7 +189,6 @@ function MaintenanceRequests() {
 
   const handleOpenAssignDialog = (request) => {
     setCurrentRequest(request);
-    // Filter technicians by specialization
     const compatibleTechs = technicians.filter(tech => 
       tech.specialization === request.category
     );
@@ -216,8 +224,12 @@ function MaintenanceRequests() {
         reported_by: user.id
       };
 
+      // --- CRITICAL FIX FOR TENANTS ---
+      // 1. Force House to NULL. Backend will auto-detect from DB.
+      // 2. Force Priority to MEDIUM.
       if (userRole === 'tenant') {
-        submitData.priority = 'medium'; // Tenants cannot set priority
+          submitData.house = null; 
+          submitData.priority = 'medium';
       }
 
       const url = editMode 
@@ -226,7 +238,6 @@ function MaintenanceRequests() {
       
       const method = editMode ? 'PUT' : 'POST';
 
-      // 1. Create/Update the Maintenance Request
       const response = await fetch(url, {
         method: method,
         headers: {
@@ -239,12 +250,10 @@ function MaintenanceRequests() {
       if (response.ok) {
         const requestData = await response.json();
         
-        // 2. Upload Images (Only on creation for simplicity)
         if (selectedImages.length > 0 && !editMode) {
           setUploadingImages(true);
           const requestId = requestData.id;
           
-          // Loop through images and upload one by one
           for (let i = 0; i < selectedImages.length; i++) {
             const formData = new FormData();
             formData.append('maintenance_request', requestId);
@@ -252,10 +261,7 @@ function MaintenanceRequests() {
             
             await fetch('http://localhost:8000/api/maintenance-images/', {
               method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                // Content-Type is auto-set by browser for FormData
-              },
+              headers: { 'Authorization': `Bearer ${token}` },
               body: formData
             });
           }
@@ -268,12 +274,12 @@ function MaintenanceRequests() {
         setError('');
       } else {
         const data = await response.json();
-        setError(JSON.stringify(data));
+        // Show the backend error message directly to the user
+        setError(data.error || JSON.stringify(data));
       }
     } catch (err) {
       setUploadingImages(false);
       setError('Failed to save request');
-      console.error('Error:', err);
     }
   };
 
@@ -300,7 +306,6 @@ function MaintenanceRequests() {
       }
     } catch (err) {
       setError('Failed to assign technician');
-      console.error('Error:', err);
     }
   };
 
@@ -323,7 +328,6 @@ function MaintenanceRequests() {
     }
   };
 
-  // Helper to handle full vs relative image URLs
   const getImageUrl = (imagePath) => {
     if (!imagePath) return '';
     if (imagePath.startsWith('http')) return imagePath;
@@ -358,7 +362,6 @@ function MaintenanceRequests() {
     });
   };
 
-  // --- Task 3 Logic: Filter Status Options ---
   let statusOptions = [
     { value: 'pending', label: 'Pending' },
     { value: 'assigned', label: 'Assigned' },
@@ -368,7 +371,6 @@ function MaintenanceRequests() {
   ];
 
   if (userRole === 'technician') {
-    // Technicians cannot see "Assigned" or "Cancelled"
     statusOptions = [
       { value: 'pending', label: 'Pending' },
       { value: 'in_progress', label: 'In Progress' },
@@ -381,7 +383,6 @@ function MaintenanceRequests() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ mb: 4 }}>
-        {/* RESPONSIVE HEADER: Flex column on mobile, Row on desktop */}
         <Box 
           display="flex" 
           flexDirection={{ xs: 'column', sm: 'row' }} 
@@ -392,7 +393,6 @@ function MaintenanceRequests() {
           <Typography variant="h4" gutterBottom>
             {userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}
           </Typography>
-          {/* Only Admin and Tenants can create requests */}
           {userRole !== 'technician' && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
               New Request
@@ -405,7 +405,6 @@ function MaintenanceRequests() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {/* RESPONSIVE TABLE CONTAINER: overflowX auto enables scrolling on mobile */}
       <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
         <Table sx={{ minWidth: 650 }} aria-label="maintenance table">
           <TableHead>
@@ -441,14 +440,12 @@ function MaintenanceRequests() {
                   {userRole !== 'tenant' && <TableCell>{request.assigned_to_name || 'Unassigned'}</TableCell>}
                   <TableCell>
                     <Box display="flex">
-                      {/* Admin Actions */}
                       {userRole === 'estate_admin' && (
                         <>
                           <IconButton size="small" color="primary" onClick={() => handleOpenAssignDialog(request)} title="Assign"><AssignmentIcon /></IconButton>
                           <IconButton size="small" color="error" onClick={() => handleDelete(request.id)} title="Delete"><DeleteIcon /></IconButton>
                         </>
                       )}
-                      {/* View/Edit Action - For Everyone */}
                       {(userRole === 'technician' || userRole === 'tenant' || userRole === 'estate_admin') && (
                          <IconButton size="small" color="primary" onClick={() => handleOpenDialog(request)} title="View/Edit"><EditIcon /></IconButton>
                       )}
@@ -461,7 +458,6 @@ function MaintenanceRequests() {
         </Table>
       </TableContainer>
 
-      {/* RESPONSIVE DIALOG: Fullscreen on mobile */}
       <Dialog 
         open={openDialog} 
         onClose={handleCloseDialog} 
@@ -478,7 +474,7 @@ function MaintenanceRequests() {
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             
-            {/* HOUSE */}
+            {/* FIX: Field is ALWAYS Disabled for Tenants. Shows house name or 'Not Assigned'. */}
             {userRole === 'estate_admin' ? (
               <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} required fullWidth>
                 {houses.map((house) => (
@@ -486,7 +482,12 @@ function MaintenanceRequests() {
                 ))}
               </TextField>
             ) : (
-              <TextField label="House" value={editMode ? currentRequest?.house_number : (tenantHouse ? "My House" : "Not Assigned")} disabled fullWidth />
+              <TextField 
+                label="House" 
+                value={editMode ? currentRequest?.house_number : tenantHouseDisplay} 
+                disabled 
+                fullWidth 
+              />
             )}
             
             <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician' && editMode}>
@@ -499,7 +500,6 @@ function MaintenanceRequests() {
             
             <TextField label="Issue Description" name="issue_description" value={formData.issue_description} onChange={handleInputChange} required multiline rows={3} fullWidth disabled={userRole === 'technician' && editMode} />
 
-            {/* STATUS & PRIORITY */}
             {userRole !== 'tenant' && (
               <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
                 <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician'}>
@@ -517,12 +517,10 @@ function MaintenanceRequests() {
               </Box>
             )}
 
-            {/* COST */}
             {(userRole === 'estate_admin' || userRole === 'technician') && (
               <TextField label="Estimated Cost (KSH)" name="estimated_cost" type="number" value={formData.estimated_cost} onChange={handleInputChange} fullWidth />
             )}
 
-            {/* IMAGES: UPLOAD (Tenant New Request) */}
             {userRole === 'tenant' && !editMode && (
               <Box>
                 <Button variant="outlined" component="label" startIcon={<PhotoCamera />} fullWidth>
@@ -535,7 +533,6 @@ function MaintenanceRequests() {
               </Box>
             )}
 
-            {/* IMAGES: VIEW GALLERY (Edit Mode) */}
             {editMode && currentRequest?.images && currentRequest.images.length > 0 && (
               <Box>
                 <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>Attached Images:</Typography>
@@ -564,7 +561,6 @@ function MaintenanceRequests() {
         </DialogActions>
       </Dialog>
 
-      {/* Assign Dialog (Admin Only) */}
       {userRole === 'estate_admin' && (
         <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="xs" fullWidth>
           <DialogTitle>Assign Technician</DialogTitle>

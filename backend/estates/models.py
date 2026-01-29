@@ -35,7 +35,7 @@ class House(models.Model):
         ordering = ['house_number']
     
     def __str__(self):
-        return f"House {self.house_number} - {self.get_house_type_display()}"
+        return f"House {self.house_number}"
 
 
 class Tenant(models.Model):
@@ -45,14 +45,7 @@ class Tenant(models.Model):
         ('inactive', 'Inactive'),
     ]
     
-    # If the User account is deleted, the Tenant profile (history) remains.
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name='tenant_profile'
-    )
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='tenant_profile')
     house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='tenants')
     move_in_date = models.DateField()
     contract_start = models.DateField()
@@ -68,19 +61,12 @@ class Tenant(models.Model):
         ordering = ['-move_in_date']
     
     def __str__(self):
-        # Updated to handle cases where User is deleted (None)
-        user_name = self.user.get_full_name() if self.user else "Deleted User"
-        house_str = self.house.house_number if self.house else 'No House'
-        return f"{user_name} - House {house_str}"
+        return f"{self.user.get_full_name()} - House {self.house.house_number if self.house else 'No House'}"
 
 
 class Contract(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
-    archived_tenant_name = models.CharField(max_length=150, blank=True)
-    
-    house = models.ForeignKey(House, on_delete=models.SET_NULL, null=True, blank=True, related_name='contracts')
-    archived_house_number = models.CharField(max_length=50, blank=True, help_text="Preserves house number if house is deleted")
-
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='contracts')
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='contracts')
     start_date = models.DateField()
     end_date = models.DateField()
     monthly_rent = models.DecimalField(max_digits=10, decimal_places=2)
@@ -92,28 +78,8 @@ class Contract(models.Model):
         db_table = 'contracts'
         ordering = ['-start_date']
     
-    def save(self, *args, **kwargs):
-        # Snapshot Tenant Name
-        if self.tenant and self.tenant.user:
-            self.archived_tenant_name = self.tenant.user.get_full_name()
-        
-        # Snapshot House Number
-        if self.house:
-            self.archived_house_number = self.house.house_number
-            
-        super().save(*args, **kwargs)
-    
     def __str__(self):
-        # Intelligent fallback: If tenant exists, use their name. If deleted, use archived name.
-        if self.tenant and self.tenant.user:
-            t_name = self.tenant.user.get_full_name()
-        elif self.archived_tenant_name:
-            t_name = f"{self.archived_tenant_name} (Archived)"
-        else:
-            t_name = "Unknown Tenant"
-            
-        h_num = self.house.house_number if self.house else self.archived_house_number
-        return f"Contract: {t_name} - {h_num}"
+        return f"Contract: {self.tenant.user.get_full_name()}"
 
 
 class Payment(models.Model):
@@ -131,12 +97,11 @@ class Payment(models.Model):
         ('garbage', 'Garbage Fee'),
         ('damage', 'Damage Repair'),
         ('deposit', 'Security Deposit'),
+        ('penalty', 'Late Payment Penalty'), ### FIX: ADDED THIS OPTION
         ('other', 'Other'),
     ]
     
-    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
-    archived_tenant_name = models.CharField(max_length=150, blank=True)
-    
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_date = models.DateField()
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
@@ -144,26 +109,20 @@ class Payment(models.Model):
     reference_number = models.CharField(max_length=50, blank=True)
     month_for = models.DateField(help_text="Month this payment covers")
     is_verified = models.BooleanField(default=False)
+    
+    # Stores name permanently
+    archived_tenant_name = models.CharField(max_length=255, blank=True, null=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'payments'
         ordering = ['-payment_date']
     
-    def save(self, *args, **kwargs):
-        if self.tenant and self.tenant.user:
-            self.archived_tenant_name = self.tenant.user.get_full_name()
-        super().save(*args, **kwargs)
-    
     def __str__(self):
-        status = "Verified" if self.is_verified else "Pending"
-        if self.tenant and self.tenant.user:
-            name = self.tenant.user.get_full_name()
-        else:
-            name = self.archived_tenant_name or "Unknown"
-        return f"{self.get_payment_type_display()}: {name} - {status}"
+        return f"{self.payment_type}: {self.tenant.user.get_full_name()} - {self.amount}"
 
-# --- BILLS (INVOICES) ---
+
 class Bill(models.Model):
     BILL_TYPE_CHOICES = [
         ('water', 'Water Bill'),
@@ -174,40 +133,28 @@ class Bill(models.Model):
         ('other', 'Other'),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.SET_NULL, null=True, blank=True, related_name='bills')
-    archived_tenant_name = models.CharField(max_length=150, blank=True)
-    
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='bills')
     bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     month_for = models.DateField(help_text="Month this bill applies to")
     description = models.TextField(blank=True, null=True)
     is_paid = models.BooleanField(default=False)
+    
+    # Stores name permanently
+    archived_tenant_name = models.CharField(max_length=255, blank=True, null=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'bills'
         ordering = ['-created_at']
-        
-    def save(self, *args, **kwargs):
-        if self.tenant and self.tenant.user:
-            self.archived_tenant_name = self.tenant.user.get_full_name()
-        super().save(*args, **kwargs)
 
     def __str__(self):
-        if self.tenant and self.tenant.user:
-            name = self.tenant.user.get_full_name()
-        else:
-            name = self.archived_tenant_name or "Unknown"
-        return f"Bill: {self.get_bill_type_display()} - {name} ({self.amount})"
+        return f"Bill: {self.get_bill_type_display()} - {self.tenant.user.get_full_name()}"
 
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
 def release_house_on_tenant_delete(sender, instance, **kwargs):
-    """
-    If a Tenant profile is explicitly deleted, mark their house as vacant.
-    Note: Since Tenant.user is now SET_NULL, deleting a User account 
-    will NOT trigger this signal (which is good, it preserves the tenant record).
-    """
     if instance.house:
         house = instance.house
         house.status = 'vacant'
