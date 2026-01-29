@@ -31,7 +31,7 @@ function Layout({ children, onLogout }) {
     fetchNotifications();
     fetchPaymentBadge();
 
-    // Poll every 5 seconds for instant updates
+    // Poll every 5 seconds for instant updates on both
     const interval = setInterval(() => {
         fetchNotifications();
         fetchPaymentBadge();
@@ -40,7 +40,7 @@ function Layout({ children, onLogout }) {
     return () => clearInterval(interval);
   }, []);
 
-  // --- LOGIC: Fetch Pending Payments (Admin) or Unpaid Bills (Tenant) ---
+  // --- NEW: Logic to fetch Pending Payments / Unpaid Bills count ---
   const fetchPaymentBadge = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -78,8 +78,6 @@ function Layout({ children, onLogout }) {
         
         // Safety check and Count
         if (Array.isArray(data)) {
-            // For tenants, ensuring we filter only THEIR bills is handled by the backend typically,
-            // but the filterFn ensures we only count unpaid ones.
             const count = data.filter(filterFn).length;
             setPaymentBadgeCount(count);
         }
@@ -182,7 +180,8 @@ function Layout({ children, onLogout }) {
       <List sx={{ flexGrow: 1 }}>
         {getMenuItems().map((item) => {
           // --- DETECT PAYMENT TAB ---
-          const isPaymentItem = item.text.includes('Payment') || item.text.includes('Bills');
+          // Checks if the menu text contains "Payment" or "Bills"
+          const isPaymentTab = item.text.includes('Payment') || item.text.includes('Bills');
 
           return (
             <ListItem key={item.text} disablePadding>
@@ -192,7 +191,7 @@ function Layout({ children, onLogout }) {
               >
                 <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
                   {/* --- APPLY BADGE HERE --- */}
-                  {isPaymentItem ? (
+                  {isPaymentTab ? (
                     <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
                       {item.icon}
                     </Badge>

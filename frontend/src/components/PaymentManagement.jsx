@@ -159,13 +159,7 @@ function PaymentManagement() {
                             const house = t ? (t.house_number || (t.house ? t.house.house_number : '')) : '';
 
                             return (
-                            <TableRow 
-                                key={p.id}
-                                sx={{
-                                    bgcolor: !p.is_verified ? '#fffde7' : 'inherit',
-                                    '&:hover': { bgcolor: !p.is_verified ? '#fff9c4' : 'rgba(0,0,0,0.04)' }
-                                }}
-                            >
+                            <TableRow key={p.id}> {/* HIGHLIGHTING REMOVED */}
                                 <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
                                 <TableCell>{name} ({house})</TableCell>
                                 <TableCell>{p.payment_type.toUpperCase()}</TableCell>
@@ -304,7 +298,7 @@ function PaymentManagement() {
         </DialogContent>
         <DialogActions>
             <Button onClick={() => setOpenBillDialog(false)}>Cancel</Button>
-            <Button onClick={handleSaveBill} variant="contained" color="secondary">Post Bill</Button>
+            <Button onClick={handleSaveBill} variant="contained" color="secondary" disabled={saving}>Post Bill</Button>
         </DialogActions>
       </Dialog>
     </Container>
