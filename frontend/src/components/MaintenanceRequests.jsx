@@ -1,30 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Typography,
-  Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  CircularProgress,
-  Alert,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  MenuItem,
-  IconButton,
-  ImageList,
-  ImageListItem,
-  useTheme,
-  useMediaQuery
+  Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, Chip, CircularProgress, Alert, Button, Dialog, DialogTitle,
+  DialogContent, DialogActions, TextField, MenuItem, IconButton, ImageList, ImageListItem,
+  useTheme, useMediaQuery
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -53,17 +32,12 @@ function MaintenanceRequests() {
   const [selectedTechnician, setSelectedTechnician] = useState('');
   const [userRole, setUserRole] = useState('');
   
-  // Stores simple string for display, e.g. "House B2"
   const [tenantHouseDisplay, setTenantHouseDisplay] = useState("Checking assignment...");
   const [selectedImages, setSelectedImages] = useState([]);
   
   const [formData, setFormData] = useState({
-    house: '',
-    issue_description: '',
-    category: 'general',
-    priority: 'medium',
-    status: 'pending',
-    estimated_cost: ''
+    house: '', issue_description: '', category: 'general', priority: 'medium',
+    status: 'pending', estimated_cost: ''
   });
 
   useEffect(() => {
@@ -77,9 +51,7 @@ function MaintenanceRequests() {
             console.error("Failed to parse user data", e);
             setLoading(false);
         }
-    } else {
-        setLoading(false);
-    }
+    } else { setLoading(false); }
   }, []);
 
   const fetchData = async () => {
@@ -96,58 +68,31 @@ function MaintenanceRequests() {
       
       if (user.role === 'tenant') {
         filteredRequests = requestsData.filter(m => String(m.reported_by) === String(user.id));
-        
-        // --- FETCH TENANT PROFILE TO SHOW HOUSE ---
         const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', { headers });
         if (tenantsResponse.ok) {
             let tenantsData = await tenantsResponse.json();
             if (tenantsData.results) tenantsData = tenantsData.results;
-
-            if (Array.isArray(tenantsData)) {
-                // Find MY tenant record
-                const myTenant = tenantsData.find(t => {
-                     const tUserId = (t.user && t.user.id) ? t.user.id : t.user;
-                     return String(tUserId) === String(user.id);
-                });
-
-                if (myTenant) {
-                    if (myTenant.house) {
-                        // Use house_number from API or fallback
-                        const hNum = myTenant.house_number || `House ID: ${myTenant.house}`;
-                        setTenantHouseDisplay(hNum);
-                    } else {
-                        setTenantHouseDisplay("Not Assigned (Contact Admin)");
-                    }
-                } else {
-                    setTenantHouseDisplay("Profile Not Found");
-                }
-            }
+            const myTenant = tenantsData.find(t => String((t.user && t.user.id) ? t.user.id : t.user) === String(user.id));
+            if (myTenant) {
+                setTenantHouseDisplay(myTenant.house_number || (myTenant.house ? `House ID: ${myTenant.house}` : "Not Assigned (Contact Admin)"));
+            } else { setTenantHouseDisplay("Profile Not Found"); }
         }
       } else if (user.role === 'technician') {
         filteredRequests = requestsData.filter(m => String(m.assigned_to) === String(user.id));
       }
-      
       setRequests(filteredRequests);
 
-      // Admin fetches extra data
       if (user.role === 'estate_admin') {
         const housesResponse = await fetch('http://localhost:8000/api/houses/', { headers });
         if (housesResponse.ok) setHouses(await housesResponse.json());
-
         const usersResponse = await fetch('http://localhost:8000/api/users/', { headers });
         if (usersResponse.ok) {
             const usersData = await usersResponse.json();
-            const techUsers = usersData.filter(user => user.role === 'technician');
-            setTechnicians(techUsers);
+            setTechnicians(usersData.filter(user => user.role === 'technician'));
         }
       }
-
       setLoading(false);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Connection error');
-      setLoading(false);
-    }
+    } catch (err) { setError('Connection error'); setLoading(false); }
   };
 
   const handleOpenDialog = (request = null) => {
@@ -155,24 +100,16 @@ function MaintenanceRequests() {
       setEditMode(true);
       setCurrentRequest(request);
       setFormData({
-        house: request.house,
-        issue_description: request.issue_description,
-        category: request.category,
-        priority: request.priority,
-        status: request.status,
-        estimated_cost: request.estimated_cost || ''
+        house: request.house, issue_description: request.issue_description,
+        category: request.category, priority: request.priority,
+        status: request.status, estimated_cost: request.estimated_cost || ''
       });
     } else {
       setEditMode(false);
       setCurrentRequest(null);
-      
       setFormData({
-        house: '', 
-        issue_description: '',
-        category: 'general',
-        priority: 'medium',
-        status: 'pending',
-        estimated_cost: ''
+        house: '', issue_description: '', category: 'general',
+        priority: 'medium', status: 'pending', estimated_cost: ''
       });
     }
     setSelectedImages([]);
@@ -189,10 +126,7 @@ function MaintenanceRequests() {
 
   const handleOpenAssignDialog = (request) => {
     setCurrentRequest(request);
-    const compatibleTechs = technicians.filter(tech => 
-      tech.specialization === request.category
-    );
-    setFilteredTechnicians(compatibleTechs);
+    setFilteredTechnicians(technicians.filter(tech => tech.specialization === request.category));
     setSelectedTechnician(request.assigned_to || '');
     setOpenAssignDialog(true);
   };
@@ -209,9 +143,22 @@ function MaintenanceRequests() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // VALIDATION: Strict Image Check
   const handleImageSelect = (e) => {
     const files = Array.from(e.target.files);
-    setSelectedImages(files);
+    const validFiles = [];
+    
+    files.forEach(file => {
+        if (file.size > 5 * 1024 * 1024) {
+            alert(`File ${file.name} is too large (Max 5MB).`);
+        } else if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+            alert(`File ${file.name} is not a valid image format.`);
+        } else {
+            validFiles.push(file);
+        }
+    });
+    
+    setSelectedImages(validFiles);
   };
 
   const handleSubmit = async () => {
@@ -219,31 +166,15 @@ function MaintenanceRequests() {
       const token = localStorage.getItem('access_token');
       const user = JSON.parse(localStorage.getItem('user'));
       
-      const submitData = {
-        ...formData,
-        reported_by: user.id
-      };
+      const submitData = { ...formData, reported_by: user.id };
+      if (userRole === 'tenant') { submitData.house = null; submitData.priority = 'medium'; }
 
-      // --- CRITICAL FIX FOR TENANTS ---
-      // 1. Force House to NULL. Backend will auto-detect from DB.
-      // 2. Force Priority to MEDIUM.
-      if (userRole === 'tenant') {
-          submitData.house = null; 
-          submitData.priority = 'medium';
-      }
-
-      const url = editMode 
-        ? `http://localhost:8000/api/maintenance/${currentRequest.id}/`
-        : 'http://localhost:8000/api/maintenance/';
-      
+      const url = editMode ? `http://localhost:8000/api/maintenance/${currentRequest.id}/` : 'http://localhost:8000/api/maintenance/';
       const method = editMode ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
         method: method,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData)
       });
 
@@ -270,17 +201,13 @@ function MaintenanceRequests() {
         
         fetchData();
         handleCloseDialog();
-        setSuccess(editMode ? 'Request updated successfully' : 'Request created successfully');
+        setSuccess(editMode ? 'Request updated' : 'Request created');
         setError('');
       } else {
         const data = await response.json();
-        // Show the backend error message directly to the user
         setError(data.error || JSON.stringify(data));
       }
-    } catch (err) {
-      setUploadingImages(false);
-      setError('Failed to save request');
-    }
+    } catch (err) { setUploadingImages(false); setError('Failed to save request'); }
   };
 
   const handleAssign = async () => {
@@ -288,44 +215,26 @@ function MaintenanceRequests() {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/maintenance/${currentRequest.id}/assign/`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ technician_id: selectedTechnician })
       });
 
-      if (response.ok) {
-        fetchData();
-        handleCloseAssignDialog();
-        setSuccess('Technician assigned successfully');
-        setError('');
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to assign technician');
-      }
-    } catch (err) {
-      setError('Failed to assign technician');
-    }
+      if (response.ok) { fetchData(); handleCloseAssignDialog(); setSuccess('Technician assigned'); setError(''); }
+      else { const data = await response.json(); setError(data.error || 'Failed to assign'); }
+    } catch (err) { setError('Failed to assign technician'); }
   };
 
   const handleDelete = async (requestId) => {
-    if (!window.confirm('Are you sure you want to delete this request?')) return;
+    if (!window.confirm('Delete request?')) return;
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/maintenance/${requestId}/`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (response.ok) {
-        fetchData();
-        setSuccess('Request deleted successfully');
-      } else {
-        setError('Failed to delete request');
-      }
-    } catch (err) {
-      setError('Failed to delete request');
-    }
+      if (response.ok) { fetchData(); setSuccess('Request deleted'); }
+      else setError('Failed to delete');
+    } catch (err) { setError('Failed to delete request'); }
   };
 
   const getImageUrl = (imagePath) => {
@@ -336,46 +245,30 @@ function MaintenanceRequests() {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'pending': return 'warning';
-      case 'assigned': return 'info';
-      case 'in_progress': return 'primary';
-      case 'completed': return 'success';
+      case 'pending': return 'warning'; case 'assigned': return 'info';
+      case 'in_progress': return 'primary'; case 'completed': return 'success';
       default: return 'default';
     }
   };
 
   const getPriorityColor = (priority) => {
     switch (priority) {
-      case 'urgent': return 'error';
-      case 'high': return 'warning';
-      case 'medium': return 'info';
-      case 'low': return 'default';
+      case 'urgent': return 'error'; case 'high': return 'warning';
+      case 'medium': return 'info'; case 'low': return 'default';
       default: return 'default';
     }
   };
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
+  const formatDate = (dateString) => new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
   let statusOptions = [
-    { value: 'pending', label: 'Pending' },
-    { value: 'assigned', label: 'Assigned' },
-    { value: 'in_progress', label: 'In Progress' },
-    { value: 'completed', label: 'Completed' },
+    { value: 'pending', label: 'Pending' }, { value: 'assigned', label: 'Assigned' },
+    { value: 'in_progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' },
     { value: 'cancelled', label: 'Cancelled' }
   ];
 
   if (userRole === 'technician') {
-    statusOptions = [
-      { value: 'pending', label: 'Pending' },
-      { value: 'in_progress', label: 'In Progress' },
-      { value: 'completed', label: 'Completed' }
-    ];
+    statusOptions = [{ value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }];
   }
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
@@ -383,21 +276,9 @@ function MaintenanceRequests() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ mb: 4 }}>
-        <Box 
-          display="flex" 
-          flexDirection={{ xs: 'column', sm: 'row' }} 
-          justifyContent="space-between" 
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-          gap={2}
-        >
-          <Typography variant="h4" gutterBottom>
-            {userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}
-          </Typography>
-          {userRole !== 'technician' && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-              New Request
-            </Button>
-          )}
+        <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={2}>
+          <Typography variant="h4" gutterBottom>{userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}</Typography>
+          {userRole !== 'technician' && (<Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>New Request</Button>)}
         </Box>
         <Typography variant="body2" color="text.secondary">Total Requests: {requests.length}</Typography>
       </Box>
@@ -422,11 +303,7 @@ function MaintenanceRequests() {
           </TableHead>
           <TableBody>
             {requests.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} align="center">
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No maintenance requests found</Typography>
-                </TableCell>
-              </TableRow>
+              <TableRow><TableCell colSpan={9} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No maintenance requests found</Typography></TableCell></TableRow>
             ) : (
               requests.map((request) => (
                 <TableRow key={request.id} hover>
@@ -458,36 +335,16 @@ function MaintenanceRequests() {
         </Table>
       </TableContainer>
 
-      <Dialog 
-        open={openDialog} 
-        onClose={handleCloseDialog} 
-        fullScreen={fullScreen}
-        maxWidth="sm" 
-        fullWidth
-      >
-        <DialogTitle>
-          {editMode 
-            ? (userRole === 'technician' ? 'Update Status & View' : 'Request Details')
-            : 'New Maintenance Request'
-          }
-        </DialogTitle>
+      <Dialog open={openDialog} onClose={handleCloseDialog} fullScreen={fullScreen} maxWidth="sm" fullWidth>
+        <DialogTitle>{editMode ? (userRole === 'technician' ? 'Update Status & View' : 'Request Details') : 'New Maintenance Request'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            
-            {/* FIX: Field is ALWAYS Disabled for Tenants. Shows house name or 'Not Assigned'. */}
             {userRole === 'estate_admin' ? (
               <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} required fullWidth>
-                {houses.map((house) => (
-                  <MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type}</MenuItem>
-                ))}
+                {houses.map((house) => (<MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type}</MenuItem>))}
               </TextField>
             ) : (
-              <TextField 
-                label="House" 
-                value={editMode ? currentRequest?.house_number : tenantHouseDisplay} 
-                disabled 
-                fullWidth 
-              />
+              <TextField label="House" value={editMode ? currentRequest?.house_number : tenantHouseDisplay} disabled fullWidth />
             )}
             
             <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician' && editMode}>
@@ -503,16 +360,10 @@ function MaintenanceRequests() {
             {userRole !== 'tenant' && (
               <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
                 <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician'}>
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                  <MenuItem value="urgent">Urgent</MenuItem>
+                  <MenuItem value="low">Low</MenuItem><MenuItem value="medium">Medium</MenuItem><MenuItem value="high">High</MenuItem><MenuItem value="urgent">Urgent</MenuItem>
                 </TextField>
-                
                 <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} required fullWidth>
-                  {statusOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                  ))}
+                  {statusOptions.map((option) => (<MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>))}
                 </TextField>
               </Box>
             )}
@@ -527,9 +378,7 @@ function MaintenanceRequests() {
                   Upload Photos (Optional)
                   <input type="file" hidden multiple accept="image/*" onChange={handleImageSelect} />
                 </Button>
-                {selectedImages.length > 0 && (
-                  <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>{selectedImages.length} image(s) selected</Typography>
-                )}
+                {selectedImages.length > 0 && (<Typography variant="caption" sx={{ mt: 1, display: 'block' }}>{selectedImages.length} image(s) selected</Typography>)}
               </Box>
             )}
 
@@ -539,13 +388,7 @@ function MaintenanceRequests() {
                 <ImageList sx={{ width: '100%', height: 160 }} cols={3} rowHeight={100}>
                   {currentRequest.images.map((img) => (
                     <ImageListItem key={img.id}>
-                      <img
-                        src={getImageUrl(img.image)}
-                        alt="Maintenance Issue"
-                        loading="lazy"
-                        style={{ height: '100px', objectFit: 'cover', cursor: 'pointer', borderRadius: 4 }}
-                        onClick={() => window.open(getImageUrl(img.image), '_blank')}
-                      />
+                      <img src={getImageUrl(img.image)} alt="Maintenance Issue" loading="lazy" style={{ height: '100px', objectFit: 'cover', cursor: 'pointer', borderRadius: 4 }} onClick={() => window.open(getImageUrl(img.image), '_blank')} />
                     </ImageListItem>
                   ))}
                 </ImageList>
@@ -555,9 +398,7 @@ function MaintenanceRequests() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog} disabled={uploadingImages}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>
-            {uploadingImages ? 'Uploading...' : (editMode ? 'Update' : 'Submit Request')}
-          </Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>{uploadingImages ? 'Uploading...' : (editMode ? 'Update' : 'Submit Request')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -570,9 +411,7 @@ function MaintenanceRequests() {
                 <Alert severity="warning">No technicians available with <strong>{currentRequest?.category}</strong> specialization.</Alert>
               ) : (
                 <TextField select label="Select Technician" value={selectedTechnician} onChange={(e) => setSelectedTechnician(e.target.value)} fullWidth>
-                  {filteredTechnicians.map((tech) => (
-                    <MenuItem key={tech.id} value={tech.id}>{tech.first_name} {tech.last_name}</MenuItem>
-                  ))}
+                  {filteredTechnicians.map((tech) => (<MenuItem key={tech.id} value={tech.id}>{tech.first_name} {tech.last_name}</MenuItem>))}
                 </TextField>
               )}
             </Box>

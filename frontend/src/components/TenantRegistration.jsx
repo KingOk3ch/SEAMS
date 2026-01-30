@@ -1,38 +1,22 @@
 import React, { useState } from 'react';
 import {
-  Box,
-  Card,
-  CardContent,
-  TextField,
-  Button,
-  Typography,
-  Alert,
-  Container,
-  CircularProgress,
+  Box, Card, CardContent, TextField, Button, Typography, Alert, Container, CircularProgress,
 } from '@mui/material';
 import { PersonAdd, CheckCircle, MarkEmailRead } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { authAPI } from '../services/api'; // Ensure this import is present
+import { authAPI } from '../services/api'; 
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 const TenantRegistration = () => {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1 = Register, 2 = Verify Code
+  const [step, setStep] = useState(1); 
   
-  // Registration Form Data
   const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    first_name: '',
-    last_name: '',
-    phone: '',
-    id_number: '',
+    username: '', email: '', password: '', confirmPassword: '',
+    first_name: '', last_name: '', phone: '', id_number: '',
   });
 
-  // Verification Form Data
   const [verificationCode, setVerificationCode] = useState('');
-
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -41,6 +25,7 @@ const TenantRegistration = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    // Clear error for this field when user types
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -69,7 +54,6 @@ const TenantRegistration = () => {
     setLoading(true);
 
     try {
-      // Use authAPI from services
       await authAPI.registerTenant({
         username: formData.username,
         email: formData.email,
@@ -86,16 +70,16 @@ const TenantRegistration = () => {
     } catch (error) {
       console.error(error);
       const errorData = error.response?.data || {};
-      const newErrors = {};
-      Object.keys(errorData).forEach(key => {
-        newErrors[key] = Array.isArray(errorData[key]) ? errorData[key][0] : errorData[key];
-      });
-      if (Object.keys(newErrors).length > 0) {
-          setErrors(newErrors);
-          setErrorMessage('Registration failed. Please fix the highlighted errors.');
-      } else {
-          setErrorMessage('Registration failed. Please try again.');
-      }
+      
+      // --- NEW PROFESSIONAL ERROR HANDLING ---
+      const { global, fields } = parseBackendErrors(errorData);
+      
+      if (global) setErrorMessage(global);
+      else setErrorMessage('Registration failed. Please fix the highlighted errors.');
+      
+      setErrors(fields);
+      // ---------------------------------------
+      
     } finally {
       setLoading(false);
     }
@@ -112,41 +96,36 @@ const TenantRegistration = () => {
         code: verificationCode
       });
 
-      setStep(3); // Success Step
+      setStep(3); 
 
     } catch (error) {
+        // Simple error handling for verification code is fine
       setErrorMessage(error.response?.data?.error || 'Invalid verification code');
     } finally {
       setLoading(false);
     }
   };
 
-  // --- Step 3: Success View ---
   if (step === 3) {
     return (
       <Container maxWidth="sm" sx={{ mt: 8 }}>
         <Card>
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <CheckCircle sx={{ fontSize: 80, color: '#10B981', mb: 2 }} />
-            <Typography variant="h4" fontWeight="bold" gutterBottom>
-              Email Verified!
-            </Typography>
+            <Typography variant="h4" fontWeight="bold" gutterBottom>Email Verified!</Typography>
             <Typography color="text.secondary" sx={{ mb: 3 }}>
               Your email is verified. Your account is now pending Admin Approval.
             </Typography>
             <Alert severity="info" sx={{ mb: 3 }}>
               You will receive an email once the Admin approves your account and assigns you a house.
             </Alert>
-            <Button variant="contained" href="/login" fullWidth>
-              Go to Login
-            </Button>
+            <Button variant="contained" href="/login" fullWidth>Go to Login</Button>
           </CardContent>
         </Card>
       </Container>
     );
   }
 
-  // --- Step 2: Verification Code View ---
   if (step === 2) {
     return (
       <Container maxWidth="sm" sx={{ mt: 8 }}>
@@ -155,12 +134,8 @@ const TenantRegistration = () => {
             <Box display="flex" alignItems="center" gap={2} mb={3}>
               <MarkEmailRead sx={{ fontSize: 40, color: '#1976d2' }} />
               <Box>
-                <Typography variant="h4" fontWeight="bold">
-                  Verify Email
-                </Typography>
-                <Typography color="text.secondary">
-                  Enter the code sent to <strong>{formData.email}</strong>
-                </Typography>
+                <Typography variant="h4" fontWeight="bold">Verify Email</Typography>
+                <Typography color="text.secondary">Enter the code sent to <strong>{formData.email}</strong></Typography>
               </Box>
             </Box>
 
@@ -169,22 +144,12 @@ const TenantRegistration = () => {
 
             <form onSubmit={handleVerifySubmit}>
               <TextField
-                fullWidth
-                label="6-Digit Code"
-                value={verificationCode}
+                fullWidth label="6-Digit Code" value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value)}
-                required
-                sx={{ mb: 3 }}
+                required sx={{ mb: 3 }}
                 inputProps={{ maxLength: 6, style: { fontSize: 24, letterSpacing: 4, textAlign: 'center' } }}
               />
-
-              <Button
-                type="submit"
-                variant="contained"
-                fullWidth
-                size="large"
-                disabled={loading}
-              >
+              <Button type="submit" variant="contained" fullWidth size="large" disabled={loading}>
                 {loading ? <CircularProgress size={24} /> : 'Verify Account'}
               </Button>
             </form>
@@ -194,7 +159,6 @@ const TenantRegistration = () => {
     );
   }
 
-  // --- Step 1: Registration View ---
   return (
     <Container maxWidth="sm" sx={{ mt: 4, mb: 4 }}>
       <Card>
@@ -202,12 +166,8 @@ const TenantRegistration = () => {
           <Box display="flex" alignItems="center" gap={2} mb={3}>
             <PersonAdd sx={{ fontSize: 40, color: '#1976d2' }} />
             <Box>
-              <Typography variant="h4" fontWeight="bold">
-                Tenant Registration
-              </Typography>
-              <Typography color="text.secondary">
-                Create your account to access SEAMS
-              </Typography>
+              <Typography variant="h4" fontWeight="bold">Tenant Registration</Typography>
+              <Typography color="text.secondary">Create your account to access SEAMS</Typography>
             </Box>
           </Box>
 
@@ -231,9 +191,7 @@ const TenantRegistration = () => {
               {loading ? <CircularProgress size={24} /> : 'Register'}
             </Button>
 
-            <Button variant="text" fullWidth href="/login">
-              Already have an account? Login
-            </Button>
+            <Button variant="text" fullWidth href="/login">Already have an account? Login</Button>
           </form>
         </CardContent>
       </Card>

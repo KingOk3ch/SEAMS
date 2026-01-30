@@ -7,12 +7,14 @@ from datetime import date, timedelta
 from django.db import IntegrityError
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
-from users.models import Notification # Import Notification model
+from users.models import Notification
+from users.permissions import IsEstateAdminOrReadOnly # NEW IMPORT
 
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
     serializer_class = HouseSerializer
-    permission_classes = [IsAuthenticated]
+    # LOCK: Only Admins can create/edit/delete. Tenants can only View (GET).
+    permission_classes = [IsEstateAdminOrReadOnly] 
 
     @action(detail=False, methods=['get'])
     def vacant(self, request):
@@ -75,7 +77,8 @@ class TenantViewSet(viewsets.ModelViewSet):
 class ContractViewSet(viewsets.ModelViewSet):
     queryset = Contract.objects.all()
     serializer_class = ContractSerializer
-    permission_classes = [IsAuthenticated]
+    # LOCK: Contracts should ideally be managed by Admins only
+    permission_classes = [IsEstateAdminOrReadOnly]
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -136,13 +139,12 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if payment.status == 'verified':
              return Response({'status': 'warning', 'message': 'Payment was already verified'})
 
-        # Update Status
         payment.is_verified = True
         payment.status = 'verified'
-        payment.rejection_reason = None # Clear any previous rejection
+        payment.rejection_reason = None
         payment.save()
 
-        # Link Payment to Bill Logic (Auto-pay bills)
+        # Link Payment to Bill Logic
         if payment.payment_type in ['water', 'electricity', 'garbage', 'damage', 'other', 'rent', 'penalty']:
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
@@ -171,7 +173,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         return Response({'status': 'verified', 'message': 'Payment verified successfully'})
 
-    # --- NEW REJECT ACTION ---
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         if getattr(request.user, 'role', None) != 'estate_admin':
@@ -180,13 +181,12 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment = self.get_object()
         reason = request.data.get('reason', 'Invalid details provided.')
         
-        # Update Status
         payment.status = 'rejected'
         payment.is_verified = False
         payment.rejection_reason = reason
         payment.save()
         
-        # PING THE TENANT (Create Notification)
+        # PING THE TENANT
         if payment.tenant and payment.tenant.user:
             Notification.objects.create(
                 recipient=payment.tenant.user,
@@ -200,7 +200,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
 class BillViewSet(viewsets.ModelViewSet):
     queryset = Bill.objects.all()
     serializer_class = BillSerializer
-    permission_classes = [IsAuthenticated]
+    # LOCK: Only Admins create bills. Tenants view only.
+    permission_classes = [IsEstateAdminOrReadOnly] 
     
     def get_queryset(self):
         user = self.request.user

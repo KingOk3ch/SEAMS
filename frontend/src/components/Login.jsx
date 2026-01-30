@@ -11,25 +11,39 @@ import {
   Link
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { parseBackendErrors } from '../utils/errorHandler';
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  
+  // State for professional errors
+  const [globalError, setGlobalError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const handleInputChange = (setter, field) => (e) => {
+      setter(e.target.value);
+      // Clear specific field error when user types
+      if (fieldErrors[field]) {
+          setFieldErrors(prev => ({ ...prev, [field]: null }));
+      }
+      // Clear global error when user interacts (so red outline goes away)
+      if (globalError) setGlobalError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setGlobalError('');
+    setFieldErrors({});
     setLoading(true);
 
     try {
       const response = await fetch('http://localhost:8000/api/auth/login/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
@@ -40,24 +54,30 @@ function Login({ onLogin }) {
         localStorage.setItem('refresh_token', data.refresh);
         
         const userResponse = await fetch('http://localhost:8000/api/users/me/', {
-          headers: {
-            'Authorization': `Bearer ${data.access}`,
-          },
+          headers: { 'Authorization': `Bearer ${data.access}` },
         });
         
         const fetchedUserData = await userResponse.json();
         localStorage.setItem('user', JSON.stringify(fetchedUserData));
         
-        // Log in immediately - bypassing profile completion
         onLogin(fetchedUserData);
         navigateToDashboard(fetchedUserData.role);
         
       } else {
-        setError(data.detail || 'Invalid username or password');
+        const { global, fields } = parseBackendErrors(data);
+        
+        // Mask the error for security, but set globalError so inputs turn red
+        if (response.status === 401 || (global && global.includes('active account'))) {
+             setGlobalError('Invalid username or password.');
+        } else {
+             setGlobalError(global || 'Login failed. Please try again.');
+        }
+        
+        setFieldErrors(fields);
         setLoading(false);
       }
     } catch (err) {
-      setError('Connection error. Make sure backend is running on port 8000');
+      setGlobalError('Connection error. Make sure backend is running on port 8000');
       console.error('Login error:', err);
       setLoading(false);
     }
@@ -91,9 +111,9 @@ function Login({ onLogin }) {
             Staff Estates Administration & Management System
           </Typography>
 
-          {error && (
+          {globalError && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+              {globalError}
             </Alert>
           )}
 
@@ -105,8 +125,11 @@ function Login({ onLogin }) {
               label="Username"
               autoFocus
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={handleInputChange(setUsername, 'username')}
               disabled={loading}
+              // VISUAL FEEDBACK: Turn red if specific error OR global error exists
+              error={!!fieldErrors.username || !!globalError} 
+              helperText={fieldErrors.username}
             />
             <TextField
               margin="normal"
@@ -115,8 +138,11 @@ function Login({ onLogin }) {
               label="Password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={handleInputChange(setPassword, 'password')}
               disabled={loading}
+              // VISUAL FEEDBACK: Turn red if specific error OR global error exists
+              error={!!fieldErrors.password || !!globalError}
+              helperText={fieldErrors.password}
             />
             <Button
               type="submit"
