@@ -2,18 +2,23 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, Button, CircularProgress, Grid, Card, CardContent,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab, Tooltip
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab, Tooltip, Alert
 } from '@mui/material';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
 import InfoIcon from '@mui/icons-material/Info';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function TenantPayments() {
   const [tabIndex, setTabIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+  const [success, setSuccess] = useState('');
+
+  // NEW: Field-level errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
   const [tenantData, setTenantData] = useState(null);
@@ -24,7 +29,7 @@ function TenantPayments() {
   const [isBillPayment, setIsBillPayment] = useState(false);
 
   const [payForm, setPayForm] = useState({
-    amount: '', payment_type: 'rent', method: 'bank', reference: '', 
+    amount: '', payment_type: 'rent', method: 'bank', reference: '',
     phone: '', payment_date: new Date().toISOString().split('T')[0]
   });
   const [saving, setSaving] = useState(false);
@@ -53,7 +58,7 @@ function TenantPayments() {
 
       let allTenants = await tenantsRes.json();
       if(allTenants.results) allTenants = allTenants.results;
-      
+
       const myTenant = allTenants.find(t => {
           const uId = t.user.id || t.user;
           return String(uId) === String(user.id);
@@ -75,7 +80,7 @@ function TenantPayments() {
             };
             const scoreA = getScore(a);
             const scoreB = getScore(b);
-            
+
             if (scoreA !== scoreB) return scoreA - scoreB; // Lower score first
             return new Date(b.payment_date) - new Date(a.payment_date); // Newest date first
         });
@@ -87,7 +92,7 @@ function TenantPayments() {
         const totalUnpaid = myBills
             .filter(b => !b.is_paid)
             .reduce((sum, b) => sum + parseFloat(b.amount), 0);
-        
+
         setOutstandingBalance(totalUnpaid);
       }
 
@@ -103,13 +108,9 @@ function TenantPayments() {
   const getBillStatus = (bill) => {
     if (bill.is_paid) return { label: "PAID", color: "success", canPay: false };
 
-    // Find if there is a blocking payment.
-    // A payment blocks the bill ONLY if it is:
-    // 1. Not Verified AND
-    // 2. Not Rejected
-    const pendingPayment = payments.find(p => 
-        (!p.is_verified && p.status !== 'rejected') && 
-        parseFloat(p.amount) === parseFloat(bill.amount) && 
+    const pendingPayment = payments.find(p =>
+        (!p.is_verified && p.status !== 'rejected') &&
+        parseFloat(p.amount) === parseFloat(bill.amount) &&
         p.payment_type === bill.bill_type
     );
 
@@ -122,20 +123,26 @@ function TenantPayments() {
 
   const handlePayBill = (bill) => {
     setIsBillPayment(true);
+    setFieldErrors({});
+    setError('');
+    setSuccess('');
     setPayForm({
         ...payForm,
         amount: bill.amount,
-        payment_type: bill.bill_type, 
+        payment_type: bill.bill_type,
         payment_date: new Date().toISOString().split('T')[0],
-        reference: '' 
+        reference: ''
     });
     setOpenPayDialog(true);
   };
 
   const handleOpenGenericPayment = () => {
     setIsBillPayment(false);
+    setFieldErrors({});
+    setError('');
+    setSuccess('');
     setPayForm({
-        amount: '', payment_type: 'rent', method: 'bank', reference: '', 
+        amount: '', payment_type: 'rent', method: 'bank', reference: '',
         phone: '', payment_date: new Date().toISOString().split('T')[0]
     });
     setOpenPayDialog(true);
@@ -143,6 +150,8 @@ function TenantPayments() {
 
   const handleInitiatePayment = async () => {
     setSaving(true);
+    setFieldErrors({});
+    setError('');
     try {
         const token = localStorage.getItem('access_token');
         const paymentData = {
@@ -157,25 +166,36 @@ function TenantPayments() {
 
         const res = await fetch('http://localhost:8000/api/payments/', {
             method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${token}`, 
-                'Content-Type': 'application/json' 
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(paymentData)
         });
 
         if (res.ok) {
-            alert("Payment Recorded! Waiting for Admin Verification.");
+            setSuccess('Payment Recorded! Waiting for Admin Verification.');
+            setError('');
             setOpenPayDialog(false);
             fetchData();
         } else {
-            const errData = await res.json();
-            alert(`Failed: ${JSON.stringify(errData)}`);
+            const errorData = await res.json();
+            const { global, fields } = parseBackendErrors(errorData);
+            setError(global || 'Failed to record payment. Please check the form.');
+            setFieldErrors(fields);
         }
     } catch (err) {
-        alert("Network error");
+        setError('Network error occurred');
     } finally {
         setSaving(false);
+    }
+  };
+
+  // NEW: Clear field errors on input
+  const handlePayFormChange = (field, value) => {
+    setPayForm(prev => ({ ...prev, [field]: value }));
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
@@ -198,6 +218,9 @@ function TenantPayments() {
             Make Payment
         </Button>
       </Box>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <Grid container spacing={3} mb={4}>
         <Grid item xs={12} md={6}>
@@ -242,7 +265,7 @@ function TenantPayments() {
                     ) : (
                         bills.map((bill) => {
                             const status = getBillStatus(bill);
-                            
+
                             return (
                                 <TableRow key={bill.id}>
                                     <TableCell>{new Date(bill.created_at).toLocaleDateString()}</TableCell>
@@ -250,9 +273,9 @@ function TenantPayments() {
                                     <TableCell fontWeight="bold">{formatCurrency(bill.amount)}</TableCell>
                                     <TableCell>{bill.description || '-'}</TableCell>
                                     <TableCell>
-                                        <Chip 
-                                            label={status.label} 
-                                            color={status.color} 
+                                        <Chip
+                                            label={status.label}
+                                            color={status.color}
                                             size="small"
                                         />
                                     </TableCell>
@@ -322,47 +345,50 @@ function TenantPayments() {
         <DialogTitle>{isBillPayment ? "Pay Bill" : "Make a Payment"}</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField 
-                    label="Amount (KES)" 
-                    type="number" 
-                    value={payForm.amount} 
-                    onChange={(e) => setPayForm({...payForm, amount: e.target.value})} 
-                    fullWidth 
-                    // FIX: Lock field if paying a specific bill
-                    disabled={isBillPayment}
-                />
-                <TextField 
-                    select 
-                    label="Payment For" 
-                    value={payForm.payment_type} 
-                    onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} 
+                <TextField
+                    label="Amount (KES)"
+                    type="number"
+                    value={payForm.amount}
+                    onChange={(e) => handlePayFormChange('amount', e.target.value)}
                     fullWidth
-                    // FIX: Lock field if paying a specific bill
                     disabled={isBillPayment}
+                    error={!!fieldErrors.amount}
+                    helperText={fieldErrors.amount}
+                />
+                <TextField
+                    select
+                    label="Payment For"
+                    value={payForm.payment_type}
+                    onChange={(e) => handlePayFormChange('payment_type', e.target.value)}
+                    fullWidth
+                    disabled={isBillPayment}
+                    error={!!fieldErrors.payment_type}
+                    helperText={fieldErrors.payment_type}
                 >
-                    {/* Added 'penalty' to list */}
                     {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                <TextField 
-                    select 
-                    label="Method" 
-                    value={payForm.method} 
-                    onChange={(e) => setPayForm({...payForm, method: e.target.value})} 
+                <TextField
+                    select
+                    label="Method"
+                    value={payForm.method}
+                    onChange={(e) => handlePayFormChange('method', e.target.value)}
                     fullWidth
+                    error={!!fieldErrors.method}
+                    helperText={fieldErrors.method}
                 >
                     <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
-                
-                {/* 4 DIGIT RESTRICTION */}
-                <TextField 
-                    label="Transaction Ref (Last 4 Digits)" 
-                    value={payForm.reference} 
-                    onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
-                    fullWidth 
-                    inputProps={{ maxLength: 4 }} 
-                    helperText="Enter only the last 4 characters"
+
+                <TextField
+                    label="Transaction Ref (Last 4 Digits)"
+                    value={payForm.reference}
+                    onChange={(e) => handlePayFormChange('reference', e.target.value)}
+                    fullWidth
+                    inputProps={{ maxLength: 4 }}
+                    helperText={fieldErrors.reference || "Enter only the last 4 characters"}
+                    error={!!fieldErrors.reference}
                 />
             </Box>
         </DialogContent>

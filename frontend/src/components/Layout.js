@@ -19,28 +19,70 @@ function Layout({ children, onLogout }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   
-  // --- NEW: Badge State for Payments/Bills ---
+  // --- BADGE STATES ---
   const [paymentBadgeCount, setPaymentBadgeCount] = useState(0);
+  const [maintenanceBadgeCount, setMaintenanceBadgeCount] = useState(0); // NEW: Maintenance Count
   
   const navigate = useNavigate();
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   useEffect(() => {
-    // Initial fetch
-    fetchNotifications();
-    fetchPaymentBadge();
+    fetchData(); // Initial Fetch
 
-    // Poll every 5 seconds for instant updates on both
+    // Poll every 5 seconds
     const interval = setInterval(() => {
-        fetchNotifications();
-        fetchPaymentBadge();
+        fetchData();
     }, 5000); 
 
     return () => clearInterval(interval);
   }, []);
 
-  // --- NEW: Logic to fetch Pending Payments / Unpaid Bills count ---
+  const fetchData = () => {
+      fetchNotifications();
+      fetchPaymentBadge();
+      fetchMaintenanceBadge(); // NEW
+  };
+
+  // --- NEW: FETCH MAINTENANCE STATS ---
+  const fetchMaintenanceBadge = async () => {
+    try {
+        const token = localStorage.getItem('access_token');
+        if (!token) return;
+
+        const response = await fetch('http://localhost:8000/api/maintenance/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+            let data = await response.json();
+            if (data.results) data = data.results; // Handle pagination
+
+            let count = 0;
+            const role = (user.role || '').toLowerCase();
+            const userId = String(user.id);
+
+            // Safe ID Helper
+            const getId = (field) => {
+                if (!field) return '';
+                return typeof field === 'object' ? String(field.id) : String(field);
+            };
+
+            if (role === 'estate_admin') {
+                // Admin: Count 'new' (unassigned) requests
+                count = data.filter(r => r.status === 'new').length;
+            } else if (role === 'technician') {
+                // Technician: Count 'assigned' (pending attention) items for THIS tech
+                count = data.filter(r => r.status === 'assigned' && getId(r.assigned_to) === userId).length;
+            }
+
+            setMaintenanceBadgeCount(count);
+        }
+    } catch (err) {
+        console.error("Failed to fetch maintenance badge", err);
+    }
+  };
+
   const fetchPaymentBadge = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -50,18 +92,16 @@ function Layout({ children, onLogout }) {
       let url = '';
       let filterFn = () => false;
 
-      // 1. ADMIN: Count Unverified Payments
       if (role === 'estate_admin') {
         url = 'http://localhost:8000/api/payments/';
         filterFn = (item) => item.is_verified === false;
       } 
-      // 2. TENANT: Count Unpaid Bills
       else if (role === 'tenant') {
         url = 'http://localhost:8000/api/bills/';
         filterFn = (item) => item.is_paid === false;
       } 
       else {
-        return; // Other roles don't need this badge
+        return; 
       }
 
       const response = await fetch(url, {
@@ -70,13 +110,8 @@ function Layout({ children, onLogout }) {
 
       if (response.ok) {
         let data = await response.json();
+        if (data.results) data = data.results;
         
-        // Handle Pagination (Extract results if wrapped)
-        if (data.results) {
-            data = data.results;
-        }
-        
-        // Safety check and Count
         if (Array.isArray(data)) {
             const count = data.filter(filterFn).length;
             setPaymentBadgeCount(count);
@@ -179,9 +214,9 @@ function Layout({ children, onLogout }) {
       <Divider />
       <List sx={{ flexGrow: 1 }}>
         {getMenuItems().map((item) => {
-          // --- DETECT PAYMENT TAB ---
-          // Checks if the menu text contains "Payment" or "Bills"
+          // Detect Tab Types
           const isPaymentTab = item.text.includes('Payment') || item.text.includes('Bills');
+          const isMaintenanceTab = item.text.includes('Maintenance');
 
           return (
             <ListItem key={item.text} disablePadding>
@@ -190,14 +225,20 @@ function Layout({ children, onLogout }) {
                 selected={location.pathname === item.path}
               >
                 <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
-                  {/* --- APPLY BADGE HERE --- */}
+                  
+                  {/* --- APPLY BADGES --- */}
                   {isPaymentTab ? (
                     <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
+                      {item.icon}
+                    </Badge>
+                  ) : isMaintenanceTab ? (
+                    <Badge badgeContent={maintenanceBadgeCount} color="error" invisible={maintenanceBadgeCount === 0}>
                       {item.icon}
                     </Badge>
                   ) : (
                     item.icon
                   )}
+
                 </ListItemIcon>
                 <ListItemText primary={item.text} />
               </ListItemButton>

@@ -25,11 +25,17 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function HouseManagement() {
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // NEW: Field-level errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentHouse, setCurrentHouse] = useState(null);
@@ -70,6 +76,10 @@ function HouseManagement() {
   };
 
   const handleOpenDialog = (house = null) => {
+    setFieldErrors({}); // Clear errors
+    setError('');
+    setSuccess('');
+
     if (house) {
       setEditMode(true);
       setCurrentHouse(house);
@@ -112,15 +122,23 @@ function HouseManagement() {
       ...prev,
       [name]: value
     }));
+
+    // Clear field error when user types
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   const handleSubmit = async () => {
+    setFieldErrors({});
+    setError('');
+
     try {
       const token = localStorage.getItem('access_token');
-      const url = editMode 
+      const url = editMode
         ? `http://localhost:8000/api/houses/${currentHouse.id}/`
         : 'http://localhost:8000/api/houses/';
-      
+
       const method = editMode ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -135,13 +153,16 @@ function HouseManagement() {
       if (response.ok) {
         fetchHouses();
         handleCloseDialog();
+        setSuccess(editMode ? 'House updated successfully' : 'House created successfully');
         setError('');
       } else {
         const data = await response.json();
-        setError(JSON.stringify(data));
+        const { global, fields } = parseBackendErrors(data);
+        setError(global || 'Failed to save house. Please check the form.');
+        setFieldErrors(fields);
       }
     } catch (err) {
-      setError('Failed to save house');
+      setError('Network error occurred');
       console.error('Error:', err);
     }
   };
@@ -160,12 +181,15 @@ function HouseManagement() {
 
       if (response.ok) {
         fetchHouses();
+        setSuccess('House deleted successfully');
         setError('');
       } else {
-        setError('Failed to delete house');
+        const data = await response.json();
+        const { global } = parseBackendErrors(data);
+        setError(global || 'Failed to delete house');
       }
     } catch (err) {
-      setError('Failed to delete house');
+      setError('Network error occurred');
       console.error('Error:', err);
     }
   };
@@ -195,8 +219,8 @@ function HouseManagement() {
           <Typography variant="h4" gutterBottom>
             House Management
           </Typography>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             startIcon={<AddIcon />}
             onClick={() => handleOpenDialog()}
           >
@@ -211,6 +235,12 @@ function HouseManagement() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+          {success}
         </Alert>
       )}
 
@@ -238,22 +268,22 @@ function HouseManagement() {
                 <TableCell>{house.bathrooms}</TableCell>
                 <TableCell>{house.rent_amount.toLocaleString()}</TableCell>
                 <TableCell>
-                  <Chip 
-                    label={house.status.replace('_', ' ').toUpperCase()} 
+                  <Chip
+                    label={house.status.replace('_', ' ').toUpperCase()}
                     color={getStatusColor(house.status)}
                     size="small"
                   />
                 </TableCell>
                 <TableCell>
-                  <IconButton 
-                    size="small" 
+                  <IconButton
+                    size="small"
                     color="primary"
                     onClick={() => handleOpenDialog(house)}
                   >
                     <EditIcon />
                   </IconButton>
-                  <IconButton 
-                    size="small" 
+                  <IconButton
+                    size="small"
                     color="error"
                     onClick={() => handleDelete(house.id)}
                   >
@@ -280,8 +310,10 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.house_number}
+              helperText={fieldErrors.house_number}
             />
-            
+
             <TextField
               select
               label="House Type"
@@ -290,6 +322,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.house_type}
+              helperText={fieldErrors.house_type}
             >
               <MenuItem value="bedsitter">Bedsitter</MenuItem>
               <MenuItem value="1_bedroom">1 Bedroom</MenuItem>
@@ -306,6 +340,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.status}
+              helperText={fieldErrors.status}
             >
               <MenuItem value="vacant">Vacant</MenuItem>
               <MenuItem value="occupied">Occupied</MenuItem>
@@ -320,6 +356,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.location}
+              helperText={fieldErrors.location}
             />
 
             <TextField
@@ -330,6 +368,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.rent_amount}
+              helperText={fieldErrors.rent_amount}
             />
 
             <TextField
@@ -340,6 +380,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.bedrooms}
+              helperText={fieldErrors.bedrooms}
             />
 
             <TextField
@@ -350,6 +392,8 @@ function HouseManagement() {
               onChange={handleInputChange}
               required
               fullWidth
+              error={!!fieldErrors.bathrooms}
+              helperText={fieldErrors.bathrooms}
             />
 
             <TextField
@@ -360,6 +404,8 @@ function HouseManagement() {
               multiline
               rows={3}
               fullWidth
+              error={!!fieldErrors.description}
+              helperText={fieldErrors.description}
             />
           </Box>
         </DialogContent>

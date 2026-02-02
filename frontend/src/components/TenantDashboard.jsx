@@ -10,6 +10,7 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate } from 'react-router-dom';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function TenantDashboard() {
   const [tenantData, setTenantData] = useState(null);
@@ -18,13 +19,17 @@ function TenantDashboard() {
   const [outstandingBalance, setOutstandingBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // NEW: Field-level errors
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // Payment Dialog State
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
-  
+
   const [payForm, setPayForm] = useState({
-    amount: '', payment_type: 'rent', method: 'bank', reference: '', 
+    amount: '', payment_type: 'rent', method: 'bank', reference: '',
     payment_date: new Date().toISOString().split('T')[0]
   });
 
@@ -51,13 +56,13 @@ function TenantDashboard() {
           const tenantUserId = (t.user && typeof t.user === 'object' && t.user.id) ? t.user.id : t.user;
           return String(tenantUserId) === String(user.id);
       });
-      
+
       if (!myTenant) {
         setError('Tenant profile not found. Please contact admin.');
         setLoading(false);
         return;
       }
-      
+
       setTenantData(myTenant);
       setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
 
@@ -65,9 +70,9 @@ function TenantDashboard() {
       const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
       let allPayments = await paymentsResponse.json();
       if (allPayments.results) allPayments = allPayments.results;
-      
+
       const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
-      
+
       // SORTING: Pending (1) > Rejected (2) > Verified (3)
       myPayments.sort((a, b) => {
           const getScore = (p) => {
@@ -77,24 +82,24 @@ function TenantDashboard() {
           };
           const scoreA = getScore(a);
           const scoreB = getScore(b);
-          
-          if (scoreA !== scoreB) return scoreA - scoreB; 
-          return new Date(b.payment_date) - new Date(a.payment_date); 
+
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return new Date(b.payment_date) - new Date(a.payment_date);
       });
-      
+
       setPayments(myPayments);
 
       // --- 3. Fetch Bills & Calculate Balance ---
       const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
       let allBills = await billsResponse.json();
       if (allBills.results) allBills = allBills.results;
-      
+
       const myBills = allBills.filter(b => b.tenant === myTenant.id);
 
       const totalUnpaid = myBills
           .filter(b => !b.is_paid)
           .reduce((sum, b) => sum + parseFloat(b.amount), 0);
-      
+
       setOutstandingBalance(totalUnpaid);
 
       // --- 4. Fetch My Maintenance ---
@@ -112,6 +117,8 @@ function TenantDashboard() {
 
   const handleInitiatePayment = async () => {
     setPayLoading(true);
+    setFieldErrors({});
+    setError('');
     try {
         const token = localStorage.getItem('access_token');
         const paymentData = {
@@ -126,24 +133,36 @@ function TenantDashboard() {
 
         const res = await fetch('http://localhost:8000/api/payments/', {
             method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${token}`, 
-                'Content-Type': 'application/json' 
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(paymentData)
         });
 
         if (res.ok) {
-            alert("Payment Recorded! Waiting for Admin Verification.");
+            setSuccess("Payment Recorded! Waiting for Admin Verification.");
+            setError('');
             setOpenPayDialog(false);
-            fetchTenantData(); 
+            fetchTenantData();
         } else {
-            alert("Failed to record payment");
+            const errorData = await res.json();
+            const { global, fields } = parseBackendErrors(errorData);
+            setError(global || "Failed to record payment. Please check the form.");
+            setFieldErrors(fields);
         }
     } catch (err) {
-        alert("Network error");
+        setError("Network error occurred");
     } finally {
         setPayLoading(false);
+    }
+  };
+
+  // NEW: Clear field errors on input
+  const handlePayFormChange = (field, value) => {
+    setPayForm(prev => ({ ...prev, [field]: value }));
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
@@ -175,16 +194,16 @@ function TenantDashboard() {
 
   // --- Reusable Dashboard Card ---
   const DashboardCard = ({ icon, title, value, subtext, color, path, bgcolor }) => (
-    <Card 
-        sx={{ 
+    <Card
+        sx={{
             height: '100%',
             bgcolor: bgcolor || 'white',
             transition: 'transform 0.2s',
             '&:hover': path ? { transform: 'scale(1.02)', boxShadow: 6, cursor: 'pointer' } : {}
         }}
     >
-      <CardActionArea 
-        onClick={() => path && navigate(path)} 
+      <CardActionArea
+        onClick={() => path && navigate(path)}
         disabled={!path}
         sx={{ height: '100%', p: 1 }}
       >
@@ -208,21 +227,22 @@ function TenantDashboard() {
     <Container maxWidth="lg">
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Typography variant="h4">My Dashboard</Typography>
-        <Button 
-            variant="contained" 
-            color="success" 
+        <Button
+            variant="contained"
+            color="success"
             startIcon={<AddCardIcon />}
-            onClick={() => setOpenPayDialog(true)}
+            onClick={() => { setOpenPayDialog(true); setFieldErrors({}); setError(''); setSuccess(''); }}
         >
             Pay Rent
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={4}>
-          <DashboardCard 
+          <DashboardCard
             icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
             title="Balance Due"
             value={formatCurrency(outstandingBalance > 0 ? outstandingBalance : 0)}
@@ -233,22 +253,22 @@ function TenantDashboard() {
         </Grid>
 
         <Grid item xs={12} md={4}>
-          <DashboardCard 
+          <DashboardCard
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
             title="My House"
             value={tenantData.house_number}
             subtext={`Rent: ${formatCurrency(tenantData.house?.rent_amount || 0)}`}
-            path={null} 
+            path={null}
           />
         </Grid>
 
         <Grid item xs={12} md={4}>
-          <DashboardCard 
+          <DashboardCard
             icon={<BuildIcon color="warning" sx={{ fontSize: 40 }} />}
-            title="Active Requests" 
-            value={activeMaintenanceCount} 
-            subtext={`${maintenance.length} Total Requests in History`} 
-            path="/maintenance" 
+            title="Active Requests"
+            value={activeMaintenanceCount}
+            subtext={`${maintenance.length} Total Requests in History`}
+            path="/maintenance"
           />
         </Grid>
       </Grid>
@@ -299,42 +319,48 @@ function TenantDashboard() {
         <DialogTitle>Make a Payment</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField 
-                    label="Amount (KES)" 
-                    type="number" 
-                    value={payForm.amount} 
-                    onChange={(e) => setPayForm({...payForm, amount: e.target.value})} 
-                    fullWidth 
-                />
-                <TextField 
-                    select 
-                    label="Payment For" 
-                    value={payForm.payment_type} 
-                    onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} 
+                <TextField
+                    label="Amount (KES)"
+                    type="number"
+                    value={payForm.amount}
+                    onChange={(e) => handlePayFormChange('amount', e.target.value)}
                     fullWidth
+                    error={!!fieldErrors.amount}
+                    helperText={fieldErrors.amount}
+                />
+                <TextField
+                    select
+                    label="Payment For"
+                    value={payForm.payment_type}
+                    onChange={(e) => handlePayFormChange('payment_type', e.target.value)}
+                    fullWidth
+                    error={!!fieldErrors.payment_type}
+                    helperText={fieldErrors.payment_type}
                 >
                     {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                <TextField 
-                    select 
-                    label="Method" 
-                    value={payForm.method} 
-                    onChange={(e) => setPayForm({...payForm, method: e.target.value})} 
+                <TextField
+                    select
+                    label="Method"
+                    value={payForm.method}
+                    onChange={(e) => handlePayFormChange('method', e.target.value)}
                     fullWidth
+                    error={!!fieldErrors.method}
+                    helperText={fieldErrors.method}
                 >
                     <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
-                
-                {/* 4 DIGIT RESTRICTION */}
-                <TextField 
-                    label="Transaction Ref (Last 4 Digits)" 
-                    value={payForm.reference} 
-                    onChange={(e) => setPayForm({...payForm, reference: e.target.value})} 
-                    fullWidth 
-                    inputProps={{ maxLength: 4 }} 
-                    helperText="e.g. QK23"
+
+                <TextField
+                    label="Transaction Ref (Last 4 Digits)"
+                    value={payForm.reference}
+                    onChange={(e) => handlePayFormChange('reference', e.target.value)}
+                    fullWidth
+                    inputProps={{ maxLength: 4 }}
+                    helperText={fieldErrors.reference || "e.g. QK23"}
+                    error={!!fieldErrors.reference}
                 />
             </Box>
         </DialogContent>

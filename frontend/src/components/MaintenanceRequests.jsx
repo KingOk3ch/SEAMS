@@ -1,331 +1,325 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, Alert, Button, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, MenuItem, IconButton, ImageList, ImageListItem,
-  useTheme, useMediaQuery
+  DialogContent, DialogActions, TextField, MenuItem, IconButton, Tabs, Tab,
+  ImageList, ImageListItem, Badge, Divider
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import AssignmentIcon from '@mui/icons-material/Assignment';
+import ImageIcon from '@mui/icons-material/Image';
 import PhotoCamera from '@mui/icons-material/PhotoCamera';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import CloseIcon from '@mui/icons-material/Close';
+import BuildCircleIcon from '@mui/icons-material/BuildCircle';
+import { parseBackendErrors } from '../utils/errorHandler';
 
 function MaintenanceRequests() {
+  // --- 1. USER ROLE & ID EXTRACTION ---
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userRole = (user.role || '').toLowerCase().trim();
+  const userId = String(user.id || '');
+
+  const isTenant = userRole === 'tenant';
+  const isTechnician = userRole === 'technician';
+  const isAdmin = userRole === 'estate_admin' || userRole === 'manager';
+
+  // --- STATE ---
   const [requests, setRequests] = useState([]);
   const [houses, setHouses] = useState([]);
+  const [tenants, setTenants] = useState([]);
   const [technicians, setTechnicians] = useState([]);
-  const [filteredTechnicians, setFilteredTechnicians] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [tabValue, setTabValue] = useState(0);
   
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('md')); 
-
+  const [fieldErrors, setFieldErrors] = useState({});
   const [openDialog, setOpenDialog] = useState(false);
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
+  const [openImageDialog, setOpenImageDialog] = useState(false);
+  const [selectedImage, setSelectedImage] = useState('');
   const [editMode, setEditMode] = useState(false);
-  const [uploadingImages, setUploadingImages] = useState(false);
-  
   const [currentRequest, setCurrentRequest] = useState(null);
-  const [selectedTechnician, setSelectedTechnician] = useState('');
-  const [userRole, setUserRole] = useState('');
-  
-  const [tenantHouseDisplay, setTenantHouseDisplay] = useState("Checking assignment...");
+  const [uploadingImages, setUploadingImages] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
-  
+
+  // Form Data
   const [formData, setFormData] = useState({
-    house: '', issue_description: '', category: 'general', priority: 'medium',
-    status: 'pending', estimated_cost: ''
+    house: '', issue_description: '', category: 'plumbing', priority: 'medium',
+    status: 'new', estimated_cost: '', technician: '',
   });
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-        try {
-            const user = JSON.parse(storedUser);
-            setUserRole(user.role || '');
-            fetchData();
-        } catch (e) {
-            console.error("Failed to parse user data", e);
-            setLoading(false);
-        }
-    } else { setLoading(false); }
-  }, []);
+  const [assignData, setAssignData] = useState({
+    technician: '', status: '', priority: '', estimated_cost: '', category: ''
+  });
 
-  const fetchData = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const user = JSON.parse(localStorage.getItem('user'));
-      const headers = { 'Authorization': `Bearer ${token}` };
-      
-      const requestsResponse = await fetch('http://localhost:8000/api/maintenance/', { headers });
-      if (!requestsResponse.ok) throw new Error("Failed to fetch requests");
-      
-      const requestsData = await requestsResponse.json();
-      let filteredRequests = requestsData;
-      
-      if (user.role === 'tenant') {
-        filteredRequests = requestsData.filter(m => String(m.reported_by) === String(user.id));
-        const tenantsResponse = await fetch('http://localhost:8000/api/tenants/', { headers });
-        if (tenantsResponse.ok) {
-            let tenantsData = await tenantsResponse.json();
-            if (tenantsData.results) tenantsData = tenantsData.results;
-            const myTenant = tenantsData.find(t => String((t.user && t.user.id) ? t.user.id : t.user) === String(user.id));
-            if (myTenant) {
-                setTenantHouseDisplay(myTenant.house_number || (myTenant.house ? `House ID: ${myTenant.house}` : "Not Assigned (Contact Admin)"));
-            } else { setTenantHouseDisplay("Profile Not Found"); }
-        }
-      } else if (user.role === 'technician') {
-        filteredRequests = requestsData.filter(m => String(m.assigned_to) === String(user.id));
-      }
-      setRequests(filteredRequests);
-
-      if (user.role === 'estate_admin') {
-        const housesResponse = await fetch('http://localhost:8000/api/houses/', { headers });
-        if (housesResponse.ok) setHouses(await housesResponse.json());
-        const usersResponse = await fetch('http://localhost:8000/api/users/', { headers });
-        if (usersResponse.ok) {
-            const usersData = await usersResponse.json();
-            setTechnicians(usersData.filter(user => user.role === 'technician'));
-        }
-      }
-      setLoading(false);
-    } catch (err) { setError('Connection error'); setLoading(false); }
+  // --- HELPER: Safe ID Extraction ---
+  const getId = (field) => {
+    if (!field) return '';
+    return typeof field === 'object' ? String(field.id) : String(field);
   };
 
+  // --- FETCH DATA ---
+  const fetchData = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const headers = { 'Authorization': `Bearer ${token}` };
+
+      const [requestsRes, housesRes, tenantsRes, usersRes] = await Promise.all([
+        fetch('http://localhost:8000/api/maintenance/', { headers }),
+        fetch('http://localhost:8000/api/houses/', { headers }),
+        fetch('http://localhost:8000/api/tenants/', { headers }),
+        fetch('http://localhost:8000/api/users/', { headers })
+      ]);
+
+      let requestsData = await requestsRes.json();
+      const housesData = await housesRes.json();
+      const tenantsData = await tenantsRes.json();
+      const usersData = await usersRes.json();
+
+      if (requestsData.results) requestsData = requestsData.results;
+
+      // --- FILTERING LOGIC ---
+      if (isTenant) {
+        requestsData = requestsData.filter(r => getId(r.reported_by) === userId);
+      }
+      
+      if (isTechnician) {
+        // Strict filter: Only show requests assigned to this user
+        requestsData = requestsData.filter(r => getId(r.assigned_to) === userId);
+      }
+
+      const technicianUsers = usersData.filter(u => (u.role || '').toLowerCase() === 'technician');
+
+      // Sorting: New/Assigned first
+      const statusOrder = { 'new': 1, 'assigned': 2, 'pending': 3, 'in_progress': 4, 'completed': 5, 'cancelled': 6 };
+      requestsData.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99));
+
+      setRequests(requestsData);
+      setHouses(housesData);
+      setTenants(tenantsData);
+      setTechnicians(technicianUsers);
+      setLoading(false);
+    } catch (err) {
+      setError('Connection error');
+      setLoading(false);
+    }
+  }, [isTenant, isTechnician, userId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // --- HANDLERS ---
   const handleOpenDialog = (request = null) => {
+    if (isTechnician) return; // Techs blocked
+    setFieldErrors({}); setError(''); setSuccess(''); setSelectedImages([]);
+    
     if (request) {
       setEditMode(true);
       setCurrentRequest(request);
       setFormData({
-        house: request.house, issue_description: request.issue_description,
-        category: request.category, priority: request.priority,
-        status: request.status, estimated_cost: request.estimated_cost || ''
+        house: getId(request.house),
+        issue_description: request.issue_description,
+        category: request.category,
+        priority: request.priority,
+        status: request.status,
+        estimated_cost: request.estimated_cost || '',
+        technician: getId(request.assigned_to), 
       });
     } else {
       setEditMode(false);
       setCurrentRequest(null);
+      let defaultHouse = '';
+      if (isTenant) {
+        const myTenant = tenants.find(t => getId(t.user) === userId);
+        if (myTenant) defaultHouse = myTenant.house;
+      }
       setFormData({
-        house: '', issue_description: '', category: 'general',
-        priority: 'medium', status: 'pending', estimated_cost: ''
+        house: defaultHouse, issue_description: '', category: 'plumbing', 
+        priority: 'medium', status: 'new', estimated_cost: '', technician: '',
       });
     }
-    setSelectedImages([]);
     setOpenDialog(true);
-  };
-
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setEditMode(false);
-    setCurrentRequest(null);
-    setSelectedImages([]);
-    setUploadingImages(false);
   };
 
   const handleOpenAssignDialog = (request) => {
     setCurrentRequest(request);
-    setFilteredTechnicians(technicians.filter(tech => tech.specialization === request.category));
-    setSelectedTechnician(request.assigned_to || '');
+    setAssignData({
+      technician: getId(request.assigned_to),
+      status: request.status,
+      priority: request.priority,      
+      estimated_cost: request.estimated_cost || '', 
+      category: request.category
+    });
     setOpenAssignDialog(true);
   };
 
-  const handleCloseAssignDialog = () => {
-    setOpenAssignDialog(false);
-    setCurrentRequest(null);
-    setSelectedTechnician('');
-    setFilteredTechnicians([]);
-  };
+  const handleCloseDialog = () => { setOpenDialog(false); setEditMode(false); setCurrentRequest(null); setSelectedImages([]); setUploadingImages(false); };
+  const handleCloseAssignDialog = () => { setOpenAssignDialog(false); setCurrentRequest(null); };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  // VALIDATION: Strict Image Check
-  const handleImageSelect = (e) => {
-    const files = Array.from(e.target.files);
-    const validFiles = [];
-    
-    files.forEach(file => {
-        if (file.size > 5 * 1024 * 1024) {
-            alert(`File ${file.name} is too large (Max 5MB).`);
-        } else if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-            alert(`File ${file.name} is not a valid image format.`);
-        } else {
-            validFiles.push(file);
-        }
-    });
-    
-    setSelectedImages(validFiles);
-  };
-
-  const handleSubmit = async () => {
+  const handleAssignSubmit = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const user = JSON.parse(localStorage.getItem('user'));
+      const url = `http://localhost:8000/api/maintenance/${currentRequest.id}/`;
       
-      const submitData = { ...formData, reported_by: user.id };
-      if (userRole === 'tenant') { submitData.house = null; submitData.priority = 'medium'; }
-
-      const url = editMode ? `http://localhost:8000/api/maintenance/${currentRequest.id}/` : 'http://localhost:8000/api/maintenance/';
-      const method = editMode ? 'PUT' : 'POST';
+      const payload = {
+        status: assignData.status,
+        priority: assignData.priority,
+        estimated_cost: assignData.estimated_cost
+      };
+      if (isAdmin) payload.assigned_to = assignData.technician;
 
       const response = await fetch(url, {
-        method: method,
+        method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(submitData)
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
-        const requestData = await response.json();
-        
-        if (selectedImages.length > 0 && !editMode) {
-          setUploadingImages(true);
-          const requestId = requestData.id;
-          
-          for (let i = 0; i < selectedImages.length; i++) {
-            const formData = new FormData();
-            formData.append('maintenance_request', requestId);
-            formData.append('image', selectedImages[i]);
-            
-            await fetch('http://localhost:8000/api/maintenance-images/', {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` },
-              body: formData
-            });
-          }
-          setUploadingImages(false);
-        }
-        
-        fetchData();
-        handleCloseDialog();
-        setSuccess(editMode ? 'Request updated' : 'Request created');
-        setError('');
+        fetchData(); handleCloseAssignDialog(); setSuccess('Updated successfully');
       } else {
-        const data = await response.json();
-        setError(data.error || JSON.stringify(data));
+        const data = await response.json(); setError(data.detail || 'Update failed');
       }
-    } catch (err) { setUploadingImages(false); setError('Failed to save request'); }
+    } catch (err) { setError('Network error'); }
   };
 
-  const handleAssign = async () => {
+  const handleSubmit = async () => {
+    setFieldErrors({}); setError('');
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/api/maintenance/${currentRequest.id}/assign/`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technician_id: selectedTechnician })
+      const submitData = { ...formData, assigned_to: formData.technician, reported_by: isTenant ? userId : undefined };
+      if (isTenant && !submitData.house) delete submitData.house;
+
+      const formDataToSend = new FormData();
+      Object.keys(submitData).forEach(key => {
+        if (submitData[key] !== '' && submitData[key] !== null && key !== 'image') formDataToSend.append(key, submitData[key]);
+      });
+      selectedImages.forEach(image => formDataToSend.append('uploaded_images', image));
+
+      const url = editMode ? `http://localhost:8000/api/maintenance/${currentRequest.id}/` : 'http://localhost:8000/api/maintenance/';
+      const method = editMode ? 'PUT' : 'POST';
+      if (selectedImages.length > 0) setUploadingImages(true);
+
+      const response = await fetch(url, {
+        method: method, headers: { 'Authorization': `Bearer ${token}` }, body: formDataToSend
       });
 
-      if (response.ok) { fetchData(); handleCloseAssignDialog(); setSuccess('Technician assigned'); setError(''); }
-      else { const data = await response.json(); setError(data.error || 'Failed to assign'); }
-    } catch (err) { setError('Failed to assign technician'); }
+      if (response.ok) {
+        fetchData(); handleCloseDialog(); setSuccess(editMode ? 'Updated' : 'Created');
+      } else {
+        const data = await response.json();
+        const { global, fields } = parseBackendErrors(data);
+        setError(global || 'Failed'); setFieldErrors(fields);
+      }
+    } catch (err) { setError('Network error'); } finally { setUploadingImages(false); }
   };
 
   const handleDelete = async (requestId) => {
-    if (!window.confirm('Delete request?')) return;
+    if (!window.confirm('Delete?')) return;
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/maintenance/${requestId}/`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (response.ok) { fetchData(); setSuccess('Request deleted'); }
-      else setError('Failed to delete');
-    } catch (err) { setError('Failed to delete request'); }
+      if (response.ok) { fetchData(); setSuccess('Deleted'); } else { setError('Failed to delete'); }
+    } catch (err) { setError('Network error'); }
   };
 
-  const getImageUrl = (imagePath) => {
-    if (!imagePath) return '';
-    if (imagePath.startsWith('http')) return imagePath;
-    return `http://localhost:8000${imagePath}`;
-  };
+  const handleImageSelect = (e) => setSelectedImages(prev => [...prev, ...Array.from(e.target.files)]);
+  const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' })); };
+  const handleViewImage = (url) => { setSelectedImage(url.startsWith('http') ? url : `http://localhost:8000${url}`); setOpenImageDialog(true); };
+  const getCompatibleTechnicians = (cat) => technicians.filter(t => (t.specialization || 'general') === (cat || 'general') || t.specialization === 'general');
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'warning'; case 'assigned': return 'info';
-      case 'in_progress': return 'primary'; case 'completed': return 'success';
-      default: return 'default';
-    }
-  };
+  // UI Helpers
+  const getStatusColor = (s) => ({ new: 'error', pending: 'warning', assigned: 'info', in_progress: 'primary', completed: 'success' }[s] || 'default');
+  const getPriorityColor = (p) => ({ low: 'success', medium: 'warning', high: 'error' }[p] || 'default');
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'urgent': return 'error'; case 'high': return 'warning';
-      case 'medium': return 'info'; case 'low': return 'default';
-      default: return 'default';
-    }
-  };
+  // --- TAB FILTERING LOGIC ---
+  const newRequests = requests.filter(r => r.status === 'new'); 
+  const assignedRequests = requests.filter(r => r.status === 'assigned'); 
+  const activeRequests = requests.filter(r => ['pending', 'assigned', 'in_progress'].includes(r.status));
+  const completedRequests = requests.filter(r => r.status === 'completed');
 
-  const formatDate = (dateString) => new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-
-  let statusOptions = [
-    { value: 'pending', label: 'Pending' }, { value: 'assigned', label: 'Assigned' },
-    { value: 'in_progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' },
-    { value: 'cancelled', label: 'Cancelled' }
-  ];
-
-  if (userRole === 'technician') {
-    statusOptions = [{ value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }];
+  // Decide what to show in the "Inbox" tab (Tab Index 1)
+  let inboxList = [];
+  if (isTechnician) {
+      inboxList = assignedRequests; // Fix: Technicians see 'assigned' items here
+  } else {
+      inboxList = newRequests; // Admins see 'new' items here
   }
+
+  // Badge Logic
+  const badgeCount = inboxList.length;
+
+  const displayedRequests = 
+      tabValue === 0 ? requests : 
+      tabValue === 1 ? inboxList : 
+      tabValue === 2 ? activeRequests : 
+      completedRequests;
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
     <Container maxWidth="lg">
       <Box sx={{ mb: 4 }}>
-        <Box display="flex" flexDirection={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={2}>
-          <Typography variant="h4" gutterBottom>{userRole === 'tenant' ? 'My Maintenance Requests' : 'Maintenance Requests'}</Typography>
-          {userRole !== 'technician' && (<Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>New Request</Button>)}
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h4" fontWeight="bold" gutterBottom>{isTenant ? 'My Maintenance' : 'Maintenance Requests'}</Typography>
+          {(isTenant || isAdmin) && <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>New Request</Button>}
         </Box>
-        <Typography variant="body2" color="text.secondary">Total Requests: {requests.length}</Typography>
+        <Paper sx={{ mt: 2, mb: 2 }}>
+          <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} indicatorColor="primary" textColor="primary">
+            <Tab label="All" />
+            <Tab label={<Box sx={{ display: 'flex', gap: 1 }}>{isTechnician ? 'Assignments' : 'New'} {badgeCount > 0 && <Badge badgeContent={badgeCount} color="error" />}</Box>} />
+            <Tab label="Active" />
+            <Tab label="Completed" />
+          </Tabs>
+        </Paper>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
-      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 650 }} aria-label="maintenance table">
-          <TableHead>
+      <TableContainer component={Paper} elevation={1} sx={{ borderRadius: 2 }}>
+        <Table>
+          <TableHead sx={{ bgcolor: '#f9fafb' }}>
             <TableRow>
-              <TableCell><strong>ID</strong></TableCell>
-              <TableCell><strong>House</strong></TableCell>
-              <TableCell><strong>Category</strong></TableCell>
-              <TableCell><strong>Issue</strong></TableCell>
-              <TableCell><strong>Priority</strong></TableCell>
-              <TableCell><strong>Status</strong></TableCell>
-              <TableCell><strong>Created</strong></TableCell>
-              {userRole !== 'tenant' && <TableCell><strong>Assigned To</strong></TableCell>}
-              <TableCell><strong>Actions</strong></TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>House</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Issue</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Category</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Priority</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Tech</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Img</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {requests.length === 0 ? (
-              <TableRow><TableCell colSpan={9} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No maintenance requests found</Typography></TableCell></TableRow>
+            {displayedRequests.length === 0 ? (
+              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 3, color: 'text.secondary' }}>No requests found</TableCell></TableRow>
             ) : (
-              requests.map((request) => (
-                <TableRow key={request.id} hover>
-                  <TableCell>{request.request_id}</TableCell>
-                  <TableCell>{request.house_number}</TableCell>
-                  <TableCell>{request.category.replace('_', ' ').toUpperCase()}</TableCell>
-                  <TableCell>{request.issue_description.substring(0, 30)}...</TableCell>
-                  <TableCell><Chip label={request.priority.toUpperCase()} color={getPriorityColor(request.priority)} size="small" /></TableCell>
-                  <TableCell><Chip label={request.status.replace('_', ' ').toUpperCase()} color={getStatusColor(request.status)} size="small" /></TableCell>
-                  <TableCell>{formatDate(request.created_at)}</TableCell>
-                  {userRole !== 'tenant' && <TableCell>{request.assigned_to_name || 'Unassigned'}</TableCell>}
+              displayedRequests.map((req) => (
+                <TableRow key={req.id} hover>
+                  <TableCell>{req.house?.house_number || req.house_number || 'N/A'}</TableCell>
+                  <TableCell>{req.issue_description.substring(0, 30)}...</TableCell>
+                  <TableCell><Chip label={req.category.toUpperCase()} size="small" variant="outlined" /></TableCell>
+                  <TableCell><Chip label={req.priority.toUpperCase()} color={getPriorityColor(req.priority)} size="small" /></TableCell>
+                  <TableCell><Chip label={req.status.replace('_',' ').toUpperCase()} color={getStatusColor(req.status)} size="small" /></TableCell>
+                  <TableCell>{req.assigned_to_name || 'Unassigned'}</TableCell>
+                  <TableCell>{req.images?.length > 0 ? <IconButton size="small" color="primary" onClick={() => handleViewImage(req.images[0].image)}><ImageIcon /></IconButton> : '-'}</TableCell>
                   <TableCell>
                     <Box display="flex">
-                      {userRole === 'estate_admin' && (
-                        <>
-                          <IconButton size="small" color="primary" onClick={() => handleOpenAssignDialog(request)} title="Assign"><AssignmentIcon /></IconButton>
-                          <IconButton size="small" color="error" onClick={() => handleDelete(request.id)} title="Delete"><DeleteIcon /></IconButton>
-                        </>
+                      {(isAdmin || isTechnician) && (
+                        <IconButton size="small" color="secondary" onClick={() => handleOpenAssignDialog(req)} title="Update Job">
+                          <AssignmentIcon />
+                        </IconButton>
                       )}
-                      {(userRole === 'technician' || userRole === 'tenant' || userRole === 'estate_admin') && (
-                         <IconButton size="small" color="primary" onClick={() => handleOpenDialog(request)} title="View/Edit"><EditIcon /></IconButton>
+                      {!isTechnician && (
+                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(req)}><EditIcon /></IconButton>
                       )}
+                      {isAdmin && <IconButton size="small" color="error" onClick={() => handleDelete(req.id)}><DeleteIcon /></IconButton>}
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -335,93 +329,119 @@ function MaintenanceRequests() {
         </Table>
       </TableContainer>
 
-      <Dialog open={openDialog} onClose={handleCloseDialog} fullScreen={fullScreen} maxWidth="sm" fullWidth>
-        <DialogTitle>{editMode ? (userRole === 'technician' ? 'Update Status & View' : 'Request Details') : 'New Maintenance Request'}</DialogTitle>
+      {/* --- PRETTIER MAIN FORM (VERTICAL RECTANGLE) --- */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>{editMode ? 'Edit Request' : 'New Request'}</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            {userRole === 'estate_admin' ? (
-              <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} required fullWidth>
-                {houses.map((house) => (<MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type}</MenuItem>))}
-              </TextField>
-            ) : (
-              <TextField label="House" value={editMode ? currentRequest?.house_number : tenantHouseDisplay} disabled fullWidth />
-            )}
-            
-            <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician' && editMode}>
-              <MenuItem value="plumbing">Plumbing</MenuItem>
-              <MenuItem value="electrical">Electrical</MenuItem>
-              <MenuItem value="structural">Structural</MenuItem>
-              <MenuItem value="pest_control">Pest Control</MenuItem>
-              <MenuItem value="general">General</MenuItem>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity="info" icon={<BuildCircleIcon />}>
+                {editMode ? 'Update request details below' : 'Report a new maintenance issue'}
+            </Alert>
+
+            <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} fullWidth required disabled={isTenant} error={!!fieldErrors.house} helperText={fieldErrors.house}>
+                {houses.map(h => <MenuItem key={h.id} value={h.id}>{h.house_number}</MenuItem>)}
             </TextField>
             
-            <TextField label="Issue Description" name="issue_description" value={formData.issue_description} onChange={handleInputChange} required multiline rows={3} fullWidth disabled={userRole === 'technician' && editMode} />
+            <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} fullWidth required>
+                {['plumbing','electrical','structural','pest_control','general'].map(c => <MenuItem key={c} value={c}>{c.toUpperCase()}</MenuItem>)}
+            </TextField>
+            
+            <TextField label="Description" name="issue_description" value={formData.issue_description} onChange={handleInputChange} multiline rows={4} fullWidth placeholder="Describe the problem..." />
 
-            {userRole !== 'tenant' && (
-              <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} required fullWidth disabled={userRole === 'technician'}>
-                  <MenuItem value="low">Low</MenuItem><MenuItem value="medium">Medium</MenuItem><MenuItem value="high">High</MenuItem><MenuItem value="urgent">Urgent</MenuItem>
-                </TextField>
-                <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} required fullWidth>
-                  {statusOptions.map((option) => (<MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>))}
-                </TextField>
-              </Box>
+            {!isTenant && (
+                <>
+                    <Divider>Admin Options</Divider>
+                    <TextField select label="Priority" name="priority" value={formData.priority} onChange={handleInputChange} fullWidth>
+                        <MenuItem value="low">Low</MenuItem><MenuItem value="medium">Medium</MenuItem><MenuItem value="high">High</MenuItem>
+                    </TextField>
+                    <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} fullWidth>
+                        {['new','pending','assigned','in_progress','completed'].map(s => <MenuItem key={s} value={s}>{s.replace('_',' ').toUpperCase()}</MenuItem>)}
+                    </TextField>
+                </>
             )}
 
-            {(userRole === 'estate_admin' || userRole === 'technician') && (
-              <TextField label="Estimated Cost (KSH)" name="estimated_cost" type="number" value={formData.estimated_cost} onChange={handleInputChange} fullWidth />
+            {isAdmin && (
+                <>
+                    <TextField select label="Assign Technician" name="technician" value={formData.technician} onChange={handleInputChange} fullWidth>
+                        <MenuItem value="">Unassigned</MenuItem>
+                        {getCompatibleTechnicians(formData.category).map(t => <MenuItem key={t.id} value={t.id}>{t.first_name} {t.last_name}</MenuItem>)}
+                    </TextField>
+                    <TextField label="Estimated Cost (KES)" name="estimated_cost" type="number" value={formData.estimated_cost} onChange={handleInputChange} fullWidth />
+                </>
             )}
 
-            {userRole === 'tenant' && !editMode && (
-              <Box>
-                <Button variant="outlined" component="label" startIcon={<PhotoCamera />} fullWidth>
-                  Upload Photos (Optional)
-                  <input type="file" hidden multiple accept="image/*" onChange={handleImageSelect} />
-                </Button>
-                {selectedImages.length > 0 && (<Typography variant="caption" sx={{ mt: 1, display: 'block' }}>{selectedImages.length} image(s) selected</Typography>)}
-              </Box>
-            )}
+            <Button variant="outlined" component="label" fullWidth startIcon={<PhotoCamera />}>
+                {selectedImages.length > 0 ? `Add More (${selectedImages.length})` : 'Upload Images'}
+                <input type="file" hidden multiple accept="image/*" onChange={handleImageSelect} />
+            </Button>
 
-            {editMode && currentRequest?.images && currentRequest.images.length > 0 && (
-              <Box>
-                <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>Attached Images:</Typography>
-                <ImageList sx={{ width: '100%', height: 160 }} cols={3} rowHeight={100}>
-                  {currentRequest.images.map((img) => (
-                    <ImageListItem key={img.id}>
-                      <img src={getImageUrl(img.image)} alt="Maintenance Issue" loading="lazy" style={{ height: '100px', objectFit: 'cover', cursor: 'pointer', borderRadius: 4 }} onClick={() => window.open(getImageUrl(img.image), '_blank')} />
-                    </ImageListItem>
-                  ))}
-                </ImageList>
-              </Box>
+            {((editMode && currentRequest?.images?.length > 0) || selectedImages.length > 0) && (
+                <Box>
+                    <Typography variant="caption" color="text.secondary">Attached Images:</Typography>
+                    <ImageList sx={{ width: '100%', maxHeight: 120 }} cols={4} rowHeight={80}>
+                        {currentRequest?.images?.map((img) => (
+                            <ImageListItem key={img.id} sx={{ cursor: 'pointer' }} onClick={() => handleViewImage(img.image)}>
+                                <img src={`http://localhost:8000${img.image}`} alt="Evidence" style={{ height: '80px', objectFit: 'cover', borderRadius: 4 }} />
+                            </ImageListItem>
+                        ))}
+                        {selectedImages.map((file, index) => (
+                            <ImageListItem key={index}>
+                                <img src={URL.createObjectURL(file)} alt="New" style={{ height: '80px', objectFit: 'cover', borderRadius: 4, opacity: 0.7 }} />
+                            </ImageListItem>
+                        ))}
+                    </ImageList>
+                </Box>
             )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog} disabled={uploadingImages}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>{uploadingImages ? 'Uploading...' : (editMode ? 'Update' : 'Submit Request')}</Button>
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>{uploadingImages ? 'Uploading...' : 'Save'}</Button>
         </DialogActions>
       </Dialog>
 
-      {userRole === 'estate_admin' && (
-        <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="xs" fullWidth>
-          <DialogTitle>Assign Technician</DialogTitle>
-          <DialogContent>
-            <Box sx={{ mt: 2 }}>
-              {filteredTechnicians.length === 0 ? (
-                <Alert severity="warning">No technicians available with <strong>{currentRequest?.category}</strong> specialization.</Alert>
-              ) : (
-                <TextField select label="Select Technician" value={selectedTechnician} onChange={(e) => setSelectedTechnician(e.target.value)} fullWidth>
-                  {filteredTechnicians.map((tech) => (<MenuItem key={tech.id} value={tech.id}>{tech.first_name} {tech.last_name}</MenuItem>))}
+      {/* --- CLIPBOARD DIALOG (Technician / Admin Update) --- */}
+      <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Update Job Status</DialogTitle>
+        <DialogContent>
+            <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Alert severity="info" icon={<AssignmentIcon />}>
+                    Update Status, Cost & Priority
+                </Alert>
+                
+                {isAdmin && (
+                    <TextField select label="Technician" value={assignData.technician} onChange={(e) => setAssignData({...assignData, technician: e.target.value})} fullWidth>
+                        <MenuItem value="">Unassigned</MenuItem>
+                        {getCompatibleTechnicians(assignData.category).length === 0 ? <MenuItem disabled>No Techs</MenuItem> : 
+                         getCompatibleTechnicians(assignData.category).map(t => <MenuItem key={t.id} value={t.id}>{t.first_name} {t.last_name}</MenuItem>)}
+                    </TextField>
+                )}
+
+                <TextField label="Estimated Cost (KES)" type="number" value={assignData.estimated_cost} onChange={(e) => setAssignData({...assignData, estimated_cost: e.target.value})} fullWidth />
+                <TextField select label="Priority" value={assignData.priority} onChange={(e) => setAssignData({...assignData, priority: e.target.value})} fullWidth>
+                    <MenuItem value="low">Low</MenuItem><MenuItem value="medium">Medium</MenuItem><MenuItem value="high">High</MenuItem>
                 </TextField>
-              )}
+                <TextField select label="Status" value={assignData.status} onChange={(e) => setAssignData({...assignData, status: e.target.value})} fullWidth>
+                    {['new','pending','assigned','in_progress','completed'].map(s => <MenuItem key={s} value={s}>{s.replace('_',' ').toUpperCase()}</MenuItem>)}
+                </TextField>
             </Box>
-          </DialogContent>
-          <DialogActions>
+        </DialogContent>
+        <DialogActions>
             <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-            <Button onClick={handleAssign} variant="contained" disabled={!selectedTechnician}>Assign</Button>
-          </DialogActions>
-        </Dialog>
-      )}
+            <Button onClick={handleAssignSubmit} variant="contained" color="primary">Save Changes</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- SIMPLE IMAGE VIEWER --- */}
+      <Dialog open={openImageDialog} onClose={() => setOpenImageDialog(false)} maxWidth="md">
+        <Box position="relative">
+            <IconButton onClick={() => setOpenImageDialog(false)} sx={{ position: 'absolute', right: 5, top: 5, bgcolor: 'rgba(255,255,255,0.7)' }}>
+                <CloseIcon />
+            </IconButton>
+            <img src={selectedImage} alt="Full View" style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
+        </Box>
+      </Dialog>
+
     </Container>
   );
 }

@@ -6,33 +6,38 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function PaymentManagement() {
-  const [tabIndex, setTabIndex] = useState(0); 
+  const [tabIndex, setTabIndex] = useState(0);
   const [payments, setPayments] = useState([]);
   const [bills, setBills] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+  const [success, setSuccess] = useState('');
+
+  // NEW: Field-level errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [openBillDialog, setOpenBillDialog] = useState(false);
-  
+
   // Reject Dialog
   const [openRejectDialog, setOpenRejectDialog] = useState(false);
   const [selectedPaymentId, setSelectedPaymentId] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  
+
   const [saving, setSaving] = useState(false);
 
   const [payForm, setPayForm] = useState({
     tenant: '', amount: '', payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'cash', payment_type: 'rent', reference_number: '', 
+    payment_method: 'cash', payment_type: 'rent', reference_number: '',
     month_for: new Date().toISOString().split('T')[0]
   });
 
   const [billForm, setBillForm] = useState({
-    tenant: '', bill_type: 'water', amount: '', 
+    tenant: '', bill_type: 'water', amount: '',
     month_for: new Date().toISOString().split('T')[0], description: ''
   });
 
@@ -44,7 +49,7 @@ function PaymentManagement() {
     try {
       const token = localStorage.getItem('access_token');
       const headers = { 'Authorization': `Bearer ${token}` };
-      
+
       const [payRes, billRes, tenRes] = await Promise.all([
         fetch('http://localhost:8000/api/payments/', { headers }),
         fetch('http://localhost:8000/api/bills/', { headers }),
@@ -54,7 +59,7 @@ function PaymentManagement() {
       // --- 1. Handle Payments ---
       let payData = await payRes.json();
       if (payData.results) payData = payData.results;
-      
+
       // STRICT SORTING: Pending (1) -> Rejected (2) -> Verified (3)
       payData.sort((a, b) => {
           const getScore = (p) => {
@@ -68,9 +73,9 @@ function PaymentManagement() {
 
           const scoreA = getScore(a);
           const scoreB = getScore(b);
-          
+
           if (scoreA !== scoreB) return scoreA - scoreB; // Lower score first
-          
+
           // Secondary Sort: Date (Newest first)
           return new Date(b.payment_date) - new Date(a.payment_date);
       });
@@ -103,23 +108,34 @@ function PaymentManagement() {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        if(res.ok) fetchData();
-        else alert("Verification failed");
-    } catch(err) { alert("Error verifying"); }
+        if(res.ok) {
+            setSuccess('Payment verified successfully');
+            setError('');
+            fetchData();
+        } else {
+            const data = await res.json();
+            const { global } = parseBackendErrors(data);
+            setError(global || 'Verification failed');
+        }
+    } catch(err) { 
+        setError('Network error occurred');
+    }
   };
 
   const handleOpenReject = (id) => {
       setSelectedPaymentId(id);
       setRejectReason('');
+      setFieldErrors({}); // Clear errors
       setOpenRejectDialog(true);
   };
 
   const handleRejectPayment = async () => {
       if(!rejectReason.trim()) {
-          alert("Please provide a reason.");
+          setFieldErrors({ reason: 'Rejection reason is required' });
           return;
       }
       setSaving(true);
+      setFieldErrors({});
       try {
         const token = localStorage.getItem('access_token');
         const res = await fetch(`http://localhost:8000/api/payments/${selectedPaymentId}/reject/`, {
@@ -128,27 +144,35 @@ function PaymentManagement() {
             body: JSON.stringify({ reason: rejectReason })
         });
         if(res.ok) {
-            alert("Payment Rejected & Tenant Notified.");
+            setSuccess('Payment rejected and tenant notified');
+            setError('');
             setOpenRejectDialog(false);
             fetchData();
         } else {
-            alert("Failed to reject payment.");
+            const data = await res.json();
+            const { global, fields } = parseBackendErrors(data);
+            setError(global || 'Failed to reject payment');
+            setFieldErrors(fields);
         }
-      } catch(err) { alert("Network Error"); }
+      } catch(err) { 
+          setError('Network error occurred');
+      }
       finally { setSaving(false); }
   };
 
   const handleSavePayment = async () => {
     setSaving(true);
+    setFieldErrors({});
+    setError('');
     await postData('http://localhost:8000/api/payments/', payForm);
-    setOpenPayDialog(false);
     setSaving(false);
   };
 
   const handleSaveBill = async () => {
     setSaving(true);
+    setFieldErrors({});
+    setError('');
     await postData('http://localhost:8000/api/bills/', billForm);
-    setOpenBillDialog(false);
     setSaving(false);
   };
 
@@ -162,11 +186,34 @@ function PaymentManagement() {
         });
         if(res.ok) {
             fetchData();
-            alert("Saved successfully!");
+            setSuccess('Saved successfully!');
+            setError('');
+            if(url.includes('payments')) setOpenPayDialog(false);
+            if(url.includes('bills')) setOpenBillDialog(false);
         } else {
-             alert("Failed to save.");
+            const errorData = await res.json();
+            const { global, fields } = parseBackendErrors(errorData);
+            setError(global || 'Failed to save. Please check the form.');
+            setFieldErrors(fields);
         }
-    } catch(err) { alert("Network Error"); }
+    } catch(err) { 
+        setError('Network error occurred');
+    }
+  };
+
+  // NEW: Clear field errors on input
+  const handlePayFormChange = (field, value) => {
+    setPayForm(prev => ({ ...prev, [field]: value }));
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handleBillFormChange = (field, value) => {
+    setBillForm(prev => ({ ...prev, [field]: value }));
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({ ...prev, [field]: '' }));
+    }
   };
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
@@ -189,13 +236,14 @@ function PaymentManagement() {
         </Tabs>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       {/* --- TAB 1: PAYMENTS --- */}
       {tabIndex === 0 && (
         <>
             <Box display="flex" justifyContent="flex-end" mb={2}>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenPayDialog(true)}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setOpenPayDialog(true); setFieldErrors({}); setError(''); }}>
                     Record Payment
                 </Button>
             </Box>
@@ -218,8 +266,6 @@ function PaymentManagement() {
                             const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
                             const house = t ? (t.house_number || (t.house ? t.house.house_number : '')) : '';
 
-                            // Only show actions if Pending (Score 1)
-                            // Must check legacy (not verified) and new status (not rejected)
                             const isActionable = !p.is_verified && p.status !== 'verified' && p.status !== 'rejected';
 
                             return (
@@ -236,16 +282,15 @@ function PaymentManagement() {
                                     {getStatusChip(p.status, p.is_verified)}
                                 </TableCell>
                                 <TableCell>
-                                    {/* Action Buttons: Only show if Actionable */}
                                     {isActionable && (
                                         <Box display="flex" gap={1}>
-                                            <Button 
-                                                size="small" 
-                                                variant="contained" 
-                                                color="primary" 
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                color="primary"
                                                 onClick={() => handleVerifyPayment(p.id)}
-                                                sx={{ 
-                                                    borderRadius: '50px', 
+                                                sx={{
+                                                    borderRadius: '50px',
                                                     textTransform: 'none',
                                                     fontWeight: 'medium',
                                                     px: 2
@@ -253,13 +298,13 @@ function PaymentManagement() {
                                             >
                                                 Verify
                                             </Button>
-                                            <Button 
-                                                size="small" 
-                                                variant="contained" 
-                                                color="error" 
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                color="error"
                                                 onClick={() => handleOpenReject(p.id)}
-                                                sx={{ 
-                                                    borderRadius: '50px', 
+                                                sx={{
+                                                    borderRadius: '50px',
                                                     textTransform: 'none',
                                                     fontWeight: 'medium',
                                                     px: 2
@@ -288,7 +333,7 @@ function PaymentManagement() {
       {tabIndex === 1 && (
         <>
             <Box display="flex" justifyContent="flex-end" mb={2}>
-                <Button variant="contained" color="secondary" startIcon={<ReceiptIcon />} onClick={() => setOpenBillDialog(true)}>
+                <Button variant="contained" color="secondary" startIcon={<ReceiptIcon />} onClick={() => { setOpenBillDialog(true); setFieldErrors({}); setError(''); }}>
                     Post New Bill
                 </Button>
             </Box>
@@ -316,10 +361,10 @@ function PaymentManagement() {
                                 <TableCell><Chip label={b.bill_type.toUpperCase()} variant="outlined" /></TableCell>
                                 <TableCell>{formatCurrency(b.amount)}</TableCell>
                                 <TableCell>
-                                    <Chip 
-                                        label={b.is_paid ? "PAID" : "Pending"} 
-                                        color={b.is_paid ? "success" : "error"} 
-                                        size="small" 
+                                    <Chip
+                                        label={b.is_paid ? "PAID" : "Pending"}
+                                        color={b.is_paid ? "success" : "error"}
+                                        size="small"
                                     />
                                 </TableCell>
                                 <TableCell>{b.description || '-'}</TableCell>
@@ -345,8 +390,13 @@ function PaymentManagement() {
                 fullWidth
                 variant="outlined"
                 value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
+                onChange={(e) => {
+                    setRejectReason(e.target.value);
+                    if (fieldErrors.reason) setFieldErrors(prev => ({ ...prev, reason: '' }));
+                }}
                 placeholder="e.g. Transaction ID not found in M-Pesa statement"
+                error={!!fieldErrors.reason}
+                helperText={fieldErrors.reason}
             />
         </DialogContent>
         <DialogActions>
@@ -362,36 +412,80 @@ function PaymentManagement() {
         <DialogTitle>Record Manual Payment</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField select label="Tenant" value={payForm.tenant} onChange={(e) => setPayForm({...payForm, tenant: e.target.value})} fullWidth>
+                <TextField 
+                    select 
+                    label="Tenant" 
+                    value={payForm.tenant} 
+                    onChange={(e) => handlePayFormChange('tenant', e.target.value)} 
+                    fullWidth
+                    error={!!fieldErrors.tenant}
+                    helperText={fieldErrors.tenant}
+                >
                     {tenants.map((t) => (
                         <MenuItem key={t.id} value={t.id}>
                             {t.user.first_name} {t.user.last_name} ({t.house_number || (t.house ? t.house.house_number : '')})
                         </MenuItem>
                     ))}
                 </TextField>
-                <TextField label="Amount" type="number" value={payForm.amount} onChange={(e) => setPayForm({...payForm, amount: e.target.value})} fullWidth />
-                <TextField select label="Type" value={payForm.payment_type} onChange={(e) => setPayForm({...payForm, payment_type: e.target.value})} fullWidth>
+                <TextField 
+                    label="Amount" 
+                    type="number" 
+                    value={payForm.amount} 
+                    onChange={(e) => handlePayFormChange('amount', e.target.value)} 
+                    fullWidth 
+                    error={!!fieldErrors.amount}
+                    helperText={fieldErrors.amount}
+                />
+                <TextField 
+                    select 
+                    label="Type" 
+                    value={payForm.payment_type} 
+                    onChange={(e) => handlePayFormChange('payment_type', e.target.value)} 
+                    fullWidth
+                    error={!!fieldErrors.payment_type}
+                    helperText={fieldErrors.payment_type}
+                >
                     {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                <TextField label="Date Paid" type="date" value={payForm.payment_date} onChange={(e) => setPayForm({...payForm, payment_date: e.target.value})} fullWidth InputLabelProps={{ shrink: true }} />
-                 <TextField select label="Method" value={payForm.payment_method} onChange={(e) => setPayForm({...payForm, payment_method: e.target.value})} fullWidth>
+                <TextField 
+                    label="Date Paid" 
+                    type="date" 
+                    value={payForm.payment_date} 
+                    onChange={(e) => handlePayFormChange('payment_date', e.target.value)} 
+                    fullWidth 
+                    InputLabelProps={{ shrink: true }} 
+                    error={!!fieldErrors.payment_date}
+                    helperText={fieldErrors.payment_date}
+                />
+                 <TextField 
+                    select 
+                    label="Method" 
+                    value={payForm.payment_method} 
+                    onChange={(e) => handlePayFormChange('payment_method', e.target.value)} 
+                    fullWidth
+                    error={!!fieldErrors.payment_method}
+                    helperText={fieldErrors.payment_method}
+                >
                     <MenuItem value="cash">Cash</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                 </TextField>
-                <TextField 
-                    label="Transaction Ref (Last 4 Digits)" 
-                    value={payForm.reference_number} 
-                    onChange={(e) => setPayForm({...payForm, reference_number: e.target.value})} 
-                    fullWidth 
-                    inputProps={{ maxLength: 4 }} 
-                    helperText="Please enter only the last 4 characters"
+                <TextField
+                    label="Transaction Ref (Last 4 Digits)"
+                    value={payForm.reference_number}
+                    onChange={(e) => handlePayFormChange('reference_number', e.target.value)}
+                    fullWidth
+                    inputProps={{ maxLength: 4 }}
+                    helperText={fieldErrors.reference_number || "Please enter only the last 4 characters"}
+                    error={!!fieldErrors.reference_number}
                 />
             </Box>
         </DialogContent>
         <DialogActions>
             <Button onClick={() => setOpenPayDialog(false)}>Cancel</Button>
-            <Button onClick={handleSavePayment} variant="contained">Save</Button>
+            <Button onClick={handleSavePayment} variant="contained" disabled={saving}>
+                {saving ? 'Saving...' : 'Save'}
+            </Button>
         </DialogActions>
       </Dialog>
 
@@ -400,24 +494,68 @@ function PaymentManagement() {
         <DialogTitle>Post New Bill</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField select label="Tenant" value={billForm.tenant} onChange={(e) => setBillForm({...billForm, tenant: e.target.value})} fullWidth>
+                <TextField 
+                    select 
+                    label="Tenant" 
+                    value={billForm.tenant} 
+                    onChange={(e) => handleBillFormChange('tenant', e.target.value)} 
+                    fullWidth
+                    error={!!fieldErrors.tenant}
+                    helperText={fieldErrors.tenant}
+                >
                     {tenants.map((t) => (
                         <MenuItem key={t.id} value={t.id}>
                             {t.user.first_name} {t.user.last_name} ({t.house_number || (t.house ? t.house.house_number : '')})
                         </MenuItem>
                     ))}
                 </TextField>
-                <TextField select label="Bill Type" value={billForm.bill_type} onChange={(e) => setBillForm({...billForm, bill_type: e.target.value})} fullWidth>
+                <TextField 
+                    select 
+                    label="Bill Type" 
+                    value={billForm.bill_type} 
+                    onChange={(e) => handleBillFormChange('bill_type', e.target.value)} 
+                    fullWidth
+                    error={!!fieldErrors.bill_type}
+                    helperText={fieldErrors.bill_type}
+                >
                     {['water','electricity','garbage','damage','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                <TextField label="Amount" type="number" value={billForm.amount} onChange={(e) => setBillForm({...billForm, amount: e.target.value})} fullWidth />
-                <TextField label="Month For" type="date" value={billForm.month_for} onChange={(e) => setBillForm({...billForm, month_for: e.target.value})} fullWidth InputLabelProps={{ shrink: true }} />
-                <TextField label="Description (Optional)" value={billForm.description} onChange={(e) => setBillForm({...billForm, description: e.target.value})} fullWidth multiline rows={2} />
+                <TextField 
+                    label="Amount" 
+                    type="number" 
+                    value={billForm.amount} 
+                    onChange={(e) => handleBillFormChange('amount', e.target.value)} 
+                    fullWidth 
+                    error={!!fieldErrors.amount}
+                    helperText={fieldErrors.amount}
+                />
+                <TextField 
+                    label="Month For" 
+                    type="date" 
+                    value={billForm.month_for} 
+                    onChange={(e) => handleBillFormChange('month_for', e.target.value)} 
+                    fullWidth 
+                    InputLabelProps={{ shrink: true }} 
+                    error={!!fieldErrors.month_for}
+                    helperText={fieldErrors.month_for}
+                />
+                <TextField 
+                    label="Description (Optional)" 
+                    value={billForm.description} 
+                    onChange={(e) => handleBillFormChange('description', e.target.value)} 
+                    fullWidth 
+                    multiline 
+                    rows={2} 
+                    error={!!fieldErrors.description}
+                    helperText={fieldErrors.description}
+                />
             </Box>
         </DialogContent>
         <DialogActions>
             <Button onClick={() => setOpenBillDialog(false)}>Cancel</Button>
-            <Button onClick={handleSaveBill} variant="contained" color="secondary" disabled={saving}>Post Bill</Button>
+            <Button onClick={handleSaveBill} variant="contained" color="secondary" disabled={saving}>
+                {saving ? 'Posting...' : 'Post Bill'}
+            </Button>
         </DialogActions>
       </Dialog>
     </Container>

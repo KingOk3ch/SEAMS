@@ -21,15 +21,12 @@ import {
   TextField,
   MenuItem,
   IconButton,
-  Grid,
-  FormControl,
-  InputLabel,
-  Select
+  Grid
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import DescriptionIcon from '@mui/icons-material/Description';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function ContractManagement() {
   const [contracts, setContracts] = useState([]);
@@ -38,6 +35,10 @@ function ContractManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // NEW: Field-level errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentContract, setCurrentContract] = useState(null);
@@ -58,7 +59,7 @@ function ContractManagement() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      
+
       const contractsResponse = await fetch('http://localhost:8000/api/contracts/', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -86,6 +87,10 @@ function ContractManagement() {
   };
 
   const handleOpenDialog = (contract = null) => {
+    setFieldErrors({}); // Clear errors
+    setError('');
+    setSuccess('');
+
     if (contract) {
       setEditMode(true);
       setCurrentContract(contract);
@@ -131,11 +136,21 @@ function ContractManagement() {
       ...prev,
       [name]: value
     }));
+
+    // Clear field error when user types
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   const handleTenantChange = (e) => {
     const tenantId = e.target.value;
     setFormData(prev => ({ ...prev, tenant: tenantId }));
+
+    // Clear error
+    if (fieldErrors.tenant) {
+      setFieldErrors(prev => ({ ...prev, tenant: '' }));
+    }
 
     // Auto-fill house and rent when tenant is selected
     const selectedTenant = tenants.find(t => t.id === tenantId);
@@ -151,12 +166,15 @@ function ContractManagement() {
   };
 
   const handleSubmit = async () => {
+    setFieldErrors({});
+    setError('');
+
     try {
       const token = localStorage.getItem('access_token');
-      const url = editMode 
+      const url = editMode
         ? `http://localhost:8000/api/contracts/${currentContract.id}/`
         : 'http://localhost:8000/api/contracts/';
-      
+
       const method = editMode ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -175,10 +193,12 @@ function ContractManagement() {
         setError('');
       } else {
         const data = await response.json();
-        setError(JSON.stringify(data));
+        const { global, fields } = parseBackendErrors(data);
+        setError(global || 'Failed to save contract. Please check the form.');
+        setFieldErrors(fields);
       }
     } catch (err) {
-      setError('Failed to save contract');
+      setError('Network error occurred');
       console.error('Error:', err);
     }
   };
@@ -200,10 +220,12 @@ function ContractManagement() {
         setSuccess('Contract deleted successfully');
         setError('');
       } else {
-        setError('Failed to delete contract');
+        const data = await response.json();
+        const { global } = parseBackendErrors(data);
+        setError(global || 'Failed to delete contract');
       }
     } catch (err) {
-      setError('Failed to delete contract');
+      setError('Network error occurred');
       console.error('Error:', err);
     }
   };
@@ -255,8 +277,8 @@ function ContractManagement() {
           <Typography variant="h4" gutterBottom>
             Contract Management
           </Typography>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             startIcon={<AddIcon />}
             onClick={() => handleOpenDialog()}
           >
@@ -317,22 +339,22 @@ function ContractManagement() {
                     <TableCell><strong>{formatCurrency(contract.monthly_rent)}</strong></TableCell>
                     <TableCell>{formatCurrency(contract.deposit_paid)}</TableCell>
                     <TableCell>
-                      <Chip 
-                        label={status.label} 
+                      <Chip
+                        label={status.label}
                         color={status.color}
                         size="small"
                       />
                     </TableCell>
                     <TableCell>
-                      <IconButton 
-                        size="small" 
+                      <IconButton
+                        size="small"
                         color="primary"
                         onClick={() => handleOpenDialog(contract)}
                       >
                         <EditIcon />
                       </IconButton>
-                      <IconButton 
-                        size="small" 
+                      <IconButton
+                        size="small"
                         color="error"
                         onClick={() => handleDelete(contract.id)}
                       >
@@ -364,6 +386,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   disabled={editMode}
+                  error={!!fieldErrors.tenant}
+                  helperText={fieldErrors.tenant}
                 >
                   {tenants.map((tenant) => (
                     <MenuItem key={tenant.id} value={tenant.id}>
@@ -382,6 +406,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   disabled={editMode}
+                  error={!!fieldErrors.house}
+                  helperText={fieldErrors.house}
                 >
                   {houses.map((house) => (
                     <MenuItem key={house.id} value={house.id}>
@@ -400,6 +426,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   InputLabelProps={{ shrink: true }}
+                  error={!!fieldErrors.start_date}
+                  helperText={fieldErrors.start_date}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -412,6 +440,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   InputLabelProps={{ shrink: true }}
+                  error={!!fieldErrors.end_date}
+                  helperText={fieldErrors.end_date}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -424,7 +454,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   inputProps={{ min: 0, step: 0.01 }}
-                  helperText="Amount in KES"
+                  helperText={fieldErrors.monthly_rent || "Amount in KES"}
+                  error={!!fieldErrors.monthly_rent}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -437,7 +468,8 @@ function ContractManagement() {
                   required
                   fullWidth
                   inputProps={{ min: 0, step: 0.01 }}
-                  helperText="Amount in KES"
+                  helperText={fieldErrors.deposit_paid || "Amount in KES"}
+                  error={!!fieldErrors.deposit_paid}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -449,7 +481,8 @@ function ContractManagement() {
                   multiline
                   rows={4}
                   fullWidth
-                  helperText="Additional terms and conditions (optional)"
+                  helperText={fieldErrors.terms || "Additional terms and conditions (optional)"}
+                  error={!!fieldErrors.terms}
                 />
               </Grid>
             </Grid>

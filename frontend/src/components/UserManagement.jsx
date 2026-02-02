@@ -12,6 +12,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
 
 function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -20,21 +21,24 @@ function UserManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
-  
+
+  // NEW: Backend field errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openApproveDialog, setOpenApproveDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  
+
   const [currentUser, setCurrentUser] = useState(null);
   const [generatedPassword, setGeneratedPassword] = useState('');
-  
-  // Validation State
+
+  // Validation State (client-side)
   const [validationErrors, setValidationErrors] = useState({});
 
   // User Form Data
   const [formData, setFormData] = useState({
-    username: '', email: '', password: '', confirmPassword: '', // Added confirm
+    username: '', email: '', password: '', confirmPassword: '',
     first_name: '', last_name: '', role: 'tenant', phone: '', id_number: '', specialization: ''
   });
 
@@ -88,7 +92,7 @@ function UserManagement() {
   // --- VALIDATION HELPER ---
   const validateField = (name, value) => {
       let errors = { ...validationErrors };
-      
+
       // Kenyan Phone Regex
       if (name === 'phone') {
           const phoneRegex = /^(?:07|01)[0-9]{8}$/;
@@ -98,12 +102,12 @@ function UserManagement() {
               delete errors.phone;
           }
       }
-      
+
       // Password Match
       if (name === 'confirmPassword' || name === 'password') {
           const pass = name === 'password' ? value : formData.password;
           const confirm = name === 'confirmPassword' ? value : formData.confirmPassword;
-          
+
           if (confirm && pass !== confirm) {
               errors.confirmPassword = "Passwords do not match";
           } else {
@@ -117,6 +121,8 @@ function UserManagement() {
 
   const handleOpenDialog = (user = null) => {
     setValidationErrors({});
+    setFieldErrors({}); // NEW
+    setError('');
     if (user) {
       setEditMode(true);
       setCurrentUser(user);
@@ -149,6 +155,11 @@ function UserManagement() {
     setFormData(prev => ({ ...prev, [name]: value }));
     validateField(name, value); // Trigger validation
     
+    // Clear backend error for this field
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
+
     if (name === 'role' && value !== 'technician') {
       setFormData(prev => ({ ...prev, specialization: '' }));
     }
@@ -157,13 +168,16 @@ function UserManagement() {
   const handleSubmit = async () => {
     if (Object.keys(validationErrors).length > 0) return;
 
+    setFieldErrors({});
+    setError('');
+
     try {
       const token = localStorage.getItem('access_token');
-      const { confirmPassword, ...submitData } = formData; // Exclude confirm field
-      
+      const { confirmPassword, ...submitData } = formData;
+
       if (editMode) {
         if (!submitData.password) delete submitData.password;
-        
+
         const response = await fetch(`http://localhost:8000/api/users/${currentUser.id}/`, {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -176,7 +190,9 @@ function UserManagement() {
           setSuccess('User updated successfully');
         } else {
           const data = await response.json();
-          setError(JSON.stringify(data));
+          const { global, fields } = parseBackendErrors(data);
+          setError(global || 'Failed to update user. Please check the form.');
+          setFieldErrors(fields);
         }
       } else {
         const response = await fetch('http://localhost:8000/api/users/register/', {
@@ -196,11 +212,13 @@ function UserManagement() {
           fetchUsers();
         } else {
           const data = await response.json();
-          setError(JSON.stringify(data));
+          const { global, fields } = parseBackendErrors(data);
+          setError(global || 'Failed to create user. Please check the form.');
+          setFieldErrors(fields);
         }
       }
     } catch (err) {
-      setError('Failed to save user');
+      setError('Network error occurred');
     }
   };
 
@@ -208,6 +226,8 @@ function UserManagement() {
 
   const handleOpenApproveDialog = (user) => {
     setCurrentUser(user);
+    setFieldErrors({});
+    setError('');
     setApprovalData({
       house_id: '',
       move_in_date: new Date().toISOString().split('T')[0],
@@ -225,9 +245,14 @@ function UserManagement() {
   const handleApprovalInputChange = (e) => {
     const { name, value } = e.target;
     setApprovalData(prev => ({ ...prev, [name]: value }));
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   const handleApprove = async () => {
+    setFieldErrors({});
+    setError('');
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${currentUser.id}/approve/`, {
@@ -243,9 +268,13 @@ function UserManagement() {
         handleCloseApproveDialog();
       } else {
         const data = await response.json();
-        setError(JSON.stringify(data));
+        const { global, fields } = parseBackendErrors(data);
+        setError(global || 'Failed to approve user. Please check the form.');
+        setFieldErrors(fields);
       }
-    } catch (err) { setError('Failed to approve user'); }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    }
   };
 
   const handleReject = async (userId) => {
@@ -258,9 +287,18 @@ function UserManagement() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ rejection_reason: reason })
       });
-      if (response.ok) { setSuccess('User rejected'); fetchUsers(); }
-      else setError('Failed to reject');
-    } catch (err) { setError('Failed to reject user'); }
+      if (response.ok) { 
+        setSuccess('User rejected'); 
+        setError('');
+        fetchUsers(); 
+      } else {
+        const data = await response.json();
+        const { global } = parseBackendErrors(data);
+        setError(global || 'Failed to reject user');
+      }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    }
   };
 
   const handleResetPassword = async (userId, username) => {
@@ -274,8 +312,15 @@ function UserManagement() {
       if (response.ok) {
         const data = await response.json();
         setSuccess(`New password: ${data.temporary_password}`);
+        setError('');
+      } else {
+        const data = await response.json();
+        const { global } = parseBackendErrors(data);
+        setError(global || 'Failed to reset password');
       }
-    } catch (err) { setError('Failed to reset password'); }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    }
   };
 
   const handleDelete = async (userId) => {
@@ -286,8 +331,18 @@ function UserManagement() {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (response.ok) { fetchUsers(); setSuccess('User deleted'); }
-    } catch (err) { setError('Failed to delete user'); }
+      if (response.ok) { 
+        fetchUsers(); 
+        setSuccess('User deleted'); 
+        setError('');
+      } else {
+        const data = await response.json();
+        const { global } = parseBackendErrors(data);
+        setError(global || 'Failed to delete user');
+      }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    }
   };
 
   const getRoleColor = (role) => {
@@ -347,8 +402,8 @@ function UserManagement() {
                   </TableCell>
                   <TableCell><Chip label={user.role.toUpperCase()} color={getRoleColor(user.role)} size="small" /></TableCell>
                   <TableCell>
-                    {user.approval_status === 'approved' ? <Chip label="APPROVED" color="success" size="small" variant="outlined" /> : 
-                     user.approval_status === 'rejected' ? <Chip label="REJECTED" color="error" size="small" variant="outlined" /> : 
+                    {user.approval_status === 'approved' ? <Chip label="APPROVED" color="success" size="small" variant="outlined" /> :
+                     user.approval_status === 'rejected' ? <Chip label="REJECTED" color="error" size="small" variant="outlined" /> :
                      <Chip label="PENDING" color="warning" size="small" />}
                   </TableCell>
                   <TableCell>{user.email_verified ? <CheckCircleIcon color="success" fontSize="small"/> : <CancelIcon color="disabled" fontSize="small"/>}</TableCell>
@@ -380,54 +435,116 @@ function UserManagement() {
           {generatedPassword && <Alert severity="success" sx={{ mb: 2 }}>Temporary Password: <strong>{generatedPassword}</strong></Alert>}
           <Box sx={{ mt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={6}><TextField label="First Name" name="first_name" value={formData.first_name} onChange={handleInputChange} fullWidth /></Grid>
-              <Grid item xs={6}><TextField label="Last Name" name="last_name" value={formData.last_name} onChange={handleInputChange} fullWidth /></Grid>
-              <Grid item xs={6}><TextField label="Username" name="username" value={formData.username} onChange={handleInputChange} fullWidth disabled={editMode} /></Grid>
               <Grid item xs={6}>
-                <TextField select label="Role" name="role" value={formData.role} onChange={handleInputChange} fullWidth>
+                <TextField 
+                  label="First Name" 
+                  name="first_name" 
+                  value={formData.first_name} 
+                  onChange={handleInputChange} 
+                  fullWidth 
+                  error={!!fieldErrors.first_name}
+                  helperText={fieldErrors.first_name}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="Last Name" 
+                  name="last_name" 
+                  value={formData.last_name} 
+                  onChange={handleInputChange} 
+                  fullWidth 
+                  error={!!fieldErrors.last_name}
+                  helperText={fieldErrors.last_name}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="Username" 
+                  name="username" 
+                  value={formData.username} 
+                  onChange={handleInputChange} 
+                  fullWidth 
+                  disabled={editMode} 
+                  error={!!fieldErrors.username}
+                  helperText={fieldErrors.username}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  select 
+                  label="Role" 
+                  name="role" 
+                  value={formData.role} 
+                  onChange={handleInputChange} 
+                  fullWidth
+                  error={!!fieldErrors.role}
+                  helperText={fieldErrors.role}
+                >
                   <MenuItem value="estate_admin">Estate Admin</MenuItem>
                   <MenuItem value="technician">Technician</MenuItem>
                   <MenuItem value="tenant">Tenant</MenuItem>
                   <MenuItem value="manager">Manager</MenuItem>
                 </TextField>
               </Grid>
-              
+
               <Grid item xs={6}>
-                  <TextField 
-                      label="Phone" 
-                      name="phone" 
-                      value={formData.phone} 
-                      onChange={handleInputChange} 
-                      fullWidth 
-                      error={!!validationErrors.phone}
-                      helperText={validationErrors.phone}
+                  <TextField
+                      label="Phone"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      fullWidth
+                      error={!!validationErrors.phone || !!fieldErrors.phone}
+                      helperText={validationErrors.phone || fieldErrors.phone}
                   />
               </Grid>
-              <Grid item xs={6}><TextField label="ID Number" name="id_number" value={formData.id_number} onChange={handleInputChange} fullWidth /></Grid>
-              <Grid item xs={6}><TextField label="Email" name="email" value={formData.email} onChange={handleInputChange} fullWidth /></Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="ID Number" 
+                  name="id_number" 
+                  value={formData.id_number} 
+                  onChange={handleInputChange} 
+                  fullWidth 
+                  error={!!fieldErrors.id_number}
+                  helperText={fieldErrors.id_number}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="Email" 
+                  name="email" 
+                  value={formData.email} 
+                  onChange={handleInputChange} 
+                  fullWidth 
+                  error={!!fieldErrors.email}
+                  helperText={fieldErrors.email}
+                />
+              </Grid>
 
               {!editMode && (
                   <>
                     <Grid item xs={6}>
-                        <TextField 
-                            label="Password" 
-                            name="password" 
-                            type="password" 
-                            value={formData.password} 
-                            onChange={handleInputChange} 
-                            fullWidth 
+                        <TextField
+                            label="Password"
+                            name="password"
+                            type="password"
+                            value={formData.password}
+                            onChange={handleInputChange}
+                            fullWidth
+                            error={!!fieldErrors.password}
+                            helperText={fieldErrors.password}
                         />
                     </Grid>
                     <Grid item xs={6}>
-                        <TextField 
-                            label="Confirm Password" 
-                            name="confirmPassword" 
-                            type="password" 
-                            value={formData.confirmPassword} 
-                            onChange={handleInputChange} 
+                        <TextField
+                            label="Confirm Password"
+                            name="confirmPassword"
+                            type="password"
+                            value={formData.confirmPassword}
+                            onChange={handleInputChange}
                             fullWidth
-                            error={!!validationErrors.confirmPassword}
-                            helperText={validationErrors.confirmPassword}
+                            error={!!validationErrors.confirmPassword || !!fieldErrors.confirmPassword}
+                            helperText={validationErrors.confirmPassword || fieldErrors.confirmPassword}
                         />
                     </Grid>
                   </>
@@ -435,7 +552,16 @@ function UserManagement() {
 
               {formData.role === 'technician' && (
                 <Grid item xs={12}>
-                  <TextField select label="Specialization" name="specialization" value={formData.specialization} onChange={handleInputChange} fullWidth>
+                  <TextField 
+                    select 
+                    label="Specialization" 
+                    name="specialization" 
+                    value={formData.specialization} 
+                    onChange={handleInputChange} 
+                    fullWidth
+                    error={!!fieldErrors.specialization}
+                    helperText={fieldErrors.specialization}
+                  >
                     <MenuItem value="plumbing">Plumbing</MenuItem>
                     <MenuItem value="electrical">Electrical</MenuItem>
                     <MenuItem value="structural">Structural</MenuItem>
@@ -450,9 +576,9 @@ function UserManagement() {
         <DialogActions>
           <Button onClick={handleCloseDialog}>Close</Button>
           {!generatedPassword && (
-              <Button 
-                onClick={handleSubmit} 
-                variant="contained" 
+              <Button
+                onClick={handleSubmit}
+                variant="contained"
                 disabled={Object.keys(validationErrors).length > 0}
               >
                 {editMode ? 'Update' : 'Create'}
@@ -461,19 +587,63 @@ function UserManagement() {
         </DialogActions>
       </Dialog>
 
-      {/* Approval Dialog - KEPT INTACT */}
+      {/* Approval Dialog */}
       <Dialog open={openApproveDialog} onClose={handleCloseApproveDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Approve Tenant & Assign House</DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Alert severity="info">Approving <strong>{currentUser?.first_name} {currentUser?.last_name}</strong>. Please assign a vacant house.</Alert>
-            <TextField select label="Assign House" name="house_id" value={approvalData.house_id} onChange={handleApprovalInputChange} fullWidth required>
+            <TextField 
+              select 
+              label="Assign House" 
+              name="house_id" 
+              value={approvalData.house_id} 
+              onChange={handleApprovalInputChange} 
+              fullWidth 
+              required
+              error={!!fieldErrors.house_id}
+              helperText={fieldErrors.house_id}
+            >
               {vacantHouses.length === 0 ? <MenuItem disabled>No vacant houses available</MenuItem> : vacantHouses.map((h) => <MenuItem key={h.id} value={h.id}>{h.house_number} ({h.house_type}) - KES {h.rent_amount}</MenuItem>)}
             </TextField>
-            <TextField label="Move-in Date" name="move_in_date" type="date" value={approvalData.move_in_date} onChange={handleApprovalInputChange} fullWidth InputLabelProps={{ shrink: true }} />
+            <TextField 
+              label="Move-in Date" 
+              name="move_in_date" 
+              type="date" 
+              value={approvalData.move_in_date} 
+              onChange={handleApprovalInputChange} 
+              fullWidth 
+              InputLabelProps={{ shrink: true }} 
+              error={!!fieldErrors.move_in_date}
+              helperText={fieldErrors.move_in_date}
+            />
             <Grid container spacing={2}>
-              <Grid item xs={6}><TextField label="Contract Start" name="contract_start" type="date" value={approvalData.contract_start} onChange={handleApprovalInputChange} fullWidth InputLabelProps={{ shrink: true }} /></Grid>
-              <Grid item xs={6}><TextField label="Contract End" name="contract_end" type="date" value={approvalData.contract_end} onChange={handleApprovalInputChange} fullWidth InputLabelProps={{ shrink: true }} /></Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="Contract Start" 
+                  name="contract_start" 
+                  type="date" 
+                  value={approvalData.contract_start} 
+                  onChange={handleApprovalInputChange} 
+                  fullWidth 
+                  InputLabelProps={{ shrink: true }} 
+                  error={!!fieldErrors.contract_start}
+                  helperText={fieldErrors.contract_start}
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField 
+                  label="Contract End" 
+                  name="contract_end" 
+                  type="date" 
+                  value={approvalData.contract_end} 
+                  onChange={handleApprovalInputChange} 
+                  fullWidth 
+                  InputLabelProps={{ shrink: true }} 
+                  error={!!fieldErrors.contract_end}
+                  helperText={fieldErrors.contract_end}
+                />
+              </Grid>
             </Grid>
           </Box>
         </DialogContent>
