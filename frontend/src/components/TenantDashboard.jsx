@@ -2,18 +2,29 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Grid, Card, CardContent, CircularProgress, Alert, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, CardActionArea, Button,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tooltip
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tooltip, Divider
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import BuildIcon from '@mui/icons-material/Build';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
+import ArticleIcon from '@mui/icons-material/Article'; // Lease Icon
+import EventIcon from '@mui/icons-material/Event'; // Date Icon
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 
+// --- NEW: Standard Terms Fallback ---
+const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
+2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
+3. Utilities: Tenant pays for electricity (Token) and Water bill.
+4. Maintenance: Tenant keeps interior clean; Landlord handles structural repairs.
+5. Notice: One month written notice required before vacating.
+6. Conduct: No noise pollution or illegal activities allowed.`;
+
 function TenantDashboard() {
   const [tenantData, setTenantData] = useState(null);
+  const [contractData, setContractData] = useState(null); // NEW: Store Contract
   const [payments, setPayments] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
   const [outstandingBalance, setOutstandingBalance] = useState(0);
@@ -24,8 +35,9 @@ function TenantDashboard() {
   // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // Payment Dialog State
+  // Dialog States
   const [openPayDialog, setOpenPayDialog] = useState(false);
+  const [openLeaseDialog, setOpenLeaseDialog] = useState(false); // NEW: Lease Dialog
   const [payLoading, setPayLoading] = useState(false);
 
   const [payForm, setPayForm] = useState({
@@ -63,13 +75,12 @@ function TenantDashboard() {
         return;
       }
 
-      // FIX: Fetch House Details specifically to get the Rent Amount
+      // PRESERVED: Fetch House Details specifically to get the Rent Amount
       if (myTenant.house) {
           try {
               const houseRes = await fetch(`http://localhost:8000/api/houses/${myTenant.house}/`, { headers });
               if (houseRes.ok) {
                   const houseData = await houseRes.json();
-                  // Attach real rent amount to tenant object for display
                   myTenant.rent_amount = houseData.rent_amount; 
               }
           } catch (e) {
@@ -79,17 +90,28 @@ function TenantDashboard() {
 
       setTenantData(myTenant);
       
-      // Auto-fill payment amount with house rent if available
+      // Auto-fill payment amount
       setPayForm(prev => ({ ...prev, amount: myTenant.rent_amount || '' }));
 
-      // --- 2. Fetch Payments ---
+      // --- 2. Fetch Active Contract (NEW) ---
+      try {
+          const contractRes = await fetch(`http://localhost:8000/api/contracts/`, { headers });
+          if (contractRes.ok) {
+              let allContracts = await contractRes.json();
+              // Find contract belonging to this tenant
+              const myContract = allContracts.find(c => c.tenant === myTenant.id);
+              if (myContract) setContractData(myContract);
+          }
+      } catch (e) { console.error("Could not fetch contract"); }
+
+      // --- 3. Fetch Payments ---
       const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
       let allPayments = await paymentsResponse.json();
       if (allPayments.results) allPayments = allPayments.results;
 
       const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
 
-      // SORTING: Pending (1) > Rejected (2) > Verified (3)
+      // PRESERVED: Strict Sorting Logic
       myPayments.sort((a, b) => {
           const getScore = (p) => {
               if (p.is_verified || p.status === 'verified') return 3;
@@ -105,7 +127,7 @@ function TenantDashboard() {
 
       setPayments(myPayments);
 
-      // --- 3. Fetch Bills & Calculate Balance ---
+      // --- 4. Fetch Bills & Calculate Balance ---
       const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
       let allBills = await billsResponse.json();
       if (allBills.results) allBills = allBills.results;
@@ -118,7 +140,7 @@ function TenantDashboard() {
 
       setOutstandingBalance(totalUnpaid);
 
-      // --- 4. Fetch My Maintenance ---
+      // --- 5. Fetch Maintenance ---
       const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
       let allMaintenance = await maintenanceResponse.json();
       if (allMaintenance.results) allMaintenance = allMaintenance.results;
@@ -200,6 +222,18 @@ function TenantDashboard() {
     return ['new', 'pending', 'assigned', 'in_progress'].includes(status);
   }).length;
 
+  // --- Contract Status Logic ---
+  const getContractStatus = () => {
+      if (!contractData) return { label: 'No Lease', color: 'default' };
+      const today = new Date();
+      const end = new Date(contractData.end_date);
+      const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
+      
+      if (daysLeft < 0) return { label: 'Expired', color: 'error' };
+      if (daysLeft < 30) return { label: 'Expiring Soon', color: 'warning' };
+      return { label: 'Active', color: 'success' };
+  };
+
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   if (!tenantData) {
@@ -207,18 +241,21 @@ function TenantDashboard() {
   }
 
   // --- Reusable Dashboard Card ---
-  const DashboardCard = ({ icon, title, value, subtext, color, path, bgcolor }) => (
+  const DashboardCard = ({ icon, title, value, subtext, color, path, onClick, bgcolor }) => (
     <Card
         sx={{
             height: '100%',
             bgcolor: bgcolor || 'white',
             transition: 'transform 0.2s',
-            '&:hover': path ? { transform: 'scale(1.02)', boxShadow: 6, cursor: 'pointer' } : {}
+            '&:hover': (path || onClick) ? { transform: 'scale(1.02)', boxShadow: 6, cursor: 'pointer' } : {}
         }}
     >
       <CardActionArea
-        onClick={() => path && navigate(path)}
-        disabled={!path}
+        onClick={() => {
+            if (onClick) onClick();
+            else if (path) navigate(path);
+        }}
+        disabled={!path && !onClick}
         sx={{ height: '100%', p: 1 }}
       >
         <CardContent>
@@ -236,6 +273,8 @@ function TenantDashboard() {
       </CardActionArea>
     </Card>
   );
+
+  const contractStatus = getContractStatus();
 
   return (
     <Container maxWidth="lg">
@@ -255,35 +294,49 @@ function TenantDashboard() {
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={4}>
+        {/* Balance Card */}
+        <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
-            title="Balance Due"
+            title="Balance"
             value={formatCurrency(outstandingBalance > 0 ? outstandingBalance : 0)}
-            subtext={outstandingBalance > 100 ? "Please clear your dues" : "You are up to date"}
+            subtext={outstandingBalance > 100 ? "Please clear dues" : "Up to date"}
             bgcolor={outstandingBalance > 100 ? "#ffebee" : "#e8f5e9"}
             path="/tenant-payments"
           />
         </Grid>
 
-        <Grid item xs={12} md={4}>
+        {/* House Card */}
+        <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
             title="My House"
             value={tenantData.house_number}
-            // FIX: Using the fetched rent_amount
-            subtext={`Rent: ${formatCurrency(tenantData.rent_amount || 0)} / month`}
+            subtext={`Rent: ${formatCurrency(tenantData.rent_amount || 0)}`}
             path={null}
           />
         </Grid>
 
-        <Grid item xs={12} md={4}>
+        {/* Maintenance Card */}
+        <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<BuildIcon color="warning" sx={{ fontSize: 40 }} />}
-            title="Active Requests"
+            title="Requests"
             value={activeMaintenanceCount}
-            subtext={`${maintenance.length} Total Requests in History`}
+            subtext={`${maintenance.length} Total Requests`}
             path="/maintenance"
+          />
+        </Grid>
+
+        {/* NEW: My Lease Card */}
+        <Grid item xs={12} sm={6} md={3}>
+          <DashboardCard
+            icon={<ArticleIcon color="info" sx={{ fontSize: 40 }} />}
+            title="My Lease"
+            value={contractStatus.label}
+            subtext={contractData ? `Ends: ${formatDate(contractData.end_date)}` : "No active contract"}
+            onClick={() => contractData && setOpenLeaseDialog(true)}
+            bgcolor="#e3f2fd"
           />
         </Grid>
       </Grid>
@@ -386,6 +439,52 @@ function TenantDashboard() {
             </Button>
         </DialogActions>
       </Dialog>
+
+      {/* NEW: View Lease Dialog (Read Only) */}
+      <Dialog open={openLeaseDialog} onClose={() => setOpenLeaseDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+                <ArticleIcon color="primary" />
+                My Lease Agreement
+            </Box>
+        </DialogTitle>
+        <DialogContent>
+            {contractData && (
+                <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Alert severity="info" icon={<EventIcon />}>
+                        Lease Valid from <strong>{formatDate(contractData.start_date)}</strong> to <strong>{formatDate(contractData.end_date)}</strong>
+                    </Alert>
+                    
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary">FINANCIALS</Typography>
+                    <Grid container spacing={2}>
+                        <Grid item xs={6}>
+                            <TextField label="Monthly Rent" value={formatCurrency(contractData.monthly_rent)} fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField label="Deposit Held" value={formatCurrency(contractData.deposit_paid)} fullWidth InputProps={{ readOnly: true }} variant="filled" />
+                        </Grid>
+                    </Grid>
+
+                    <Divider />
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary">TERMS & CONDITIONS</Typography>
+                    {/* AUTOMATIC TERMS FALLBACK */}
+                    <TextField 
+                        multiline 
+                        rows={6} 
+                        value={contractData.terms || DEFAULT_TERMS} 
+                        fullWidth 
+                        InputProps={{ readOnly: true }} 
+                        variant="outlined" 
+                        sx={{ bgcolor: '#f9f9f9' }}
+                    />
+                </Box>
+            )}
+        </DialogContent>
+        <DialogActions>
+            <Button onClick={() => setOpenLeaseDialog(false)} variant="contained">Close</Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }

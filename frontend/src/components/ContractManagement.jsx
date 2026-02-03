@@ -8,12 +8,19 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import HistoryEduIcon from '@mui/icons-material/HistoryEdu'; // Banner Icon
+import HistoryEduIcon from '@mui/icons-material/HistoryEdu';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import ArticleIcon from '@mui/icons-material/Article';
 import { parseBackendErrors } from '../utils/errorHandler';
+
+const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
+2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
+3. Utilities: Tenant pays for electricity (Token) and Water bill.
+4. Maintenance: Tenant keeps interior clean; Landlord handles structural repairs.
+5. Notice: One month written notice required before vacating.
+6. Conduct: No noise pollution or illegal activities allowed.`;
 
 function ContractManagement() {
   const [contracts, setContracts] = useState([]);
@@ -22,14 +29,14 @@ function ContractManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [tabValue, setTabValue] = useState(0); // 0: All, 1: Active, 2: Expiring, 3: Expired
+  const [tabValue, setTabValue] = useState(0); 
 
-  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentContract, setCurrentContract] = useState(null);
+  
   const [formData, setFormData] = useState({
     tenant: '',
     house: '',
@@ -84,7 +91,7 @@ function ContractManagement() {
         end_date: contract.end_date,
         monthly_rent: contract.monthly_rent,
         deposit_paid: contract.deposit_paid,
-        terms: contract.terms || ''
+        terms: contract.terms || DEFAULT_TERMS 
       });
     } else {
       setEditMode(false);
@@ -101,7 +108,7 @@ function ContractManagement() {
         end_date: endDate,
         monthly_rent: '',
         deposit_paid: '',
-        terms: ''
+        terms: DEFAULT_TERMS 
       });
     }
     setOpenDialog(true);
@@ -116,9 +123,27 @@ function ContractManagement() {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (fieldErrors[name]) {
-      setFieldErrors(prev => ({ ...prev, [name]: '' }));
-    }
+    if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }));
+  };
+
+  // --- NEW: Handle House Change (Updates Rent & Deposit) ---
+  const handleHouseChange = (e) => {
+      const houseId = e.target.value;
+      setFormData(prev => ({ ...prev, house: houseId }));
+      if (fieldErrors.house) setFieldErrors(prev => ({ ...prev, house: '' }));
+
+      // Find the house to get its price
+      const selectedHouse = houses.find(h => h.id === houseId);
+      if (selectedHouse) {
+          setFormData(prev => ({
+              ...prev,
+              house: houseId,
+              monthly_rent: selectedHouse.rent_amount || '',
+              // Default Deposit = 1 Month Rent (Standard) or 2 Months if previous logic preferred
+              // Using existing logic: Rent * 2 (e.g. 1 Month Rent + 1 Month Deposit)
+              deposit_paid: selectedHouse.rent_amount ? selectedHouse.rent_amount * 2 : ''
+          }));
+      }
   };
 
   const handleTenantChange = (e) => {
@@ -126,15 +151,15 @@ function ContractManagement() {
     setFormData(prev => ({ ...prev, tenant: tenantId }));
     if (fieldErrors.tenant) setFieldErrors(prev => ({ ...prev, tenant: '' }));
 
-    // Auto-fill house and rent when tenant is selected
     const selectedTenant = tenants.find(t => t.id === tenantId);
     if (selectedTenant) {
-      const selectedHouse = houses.find(h => h.id === selectedTenant.house);
+      const assignedHouse = houses.find(h => h.id === selectedTenant.house);
+      
       setFormData(prev => ({
         ...prev,
-        house: selectedTenant.house,
-        monthly_rent: selectedHouse?.rent_amount || '',
-        deposit_paid: selectedHouse ? selectedHouse.rent_amount * 2 : ''
+        house: assignedHouse ? assignedHouse.id : prev.house,
+        monthly_rent: assignedHouse?.rent_amount || '',
+        deposit_paid: assignedHouse ? assignedHouse.rent_amount * 2 : ''
       }));
     }
   };
@@ -197,7 +222,6 @@ function ContractManagement() {
     }
   };
 
-  // Helper Logic
   const getContractStatusInfo = (endDate) => {
     const today = new Date();
     const end = new Date(endDate);
@@ -230,6 +254,29 @@ function ContractManagement() {
       case 3: displayedContracts = expiredContracts; break;
       default: displayedContracts = contracts;
   }
+
+  // --- SMART DROPDOWN FILTERS ---
+
+  const tenantsWithActiveContracts = new Set(
+    contracts
+      .filter(c => getContractStatusInfo(c.end_date).status !== 'expired')
+      .map(c => c.tenant)
+  );
+
+  const availableTenants = tenants.filter(t => 
+    !tenantsWithActiveContracts.has(t.id) || 
+    (editMode && currentContract && t.id === currentContract.tenant)
+  );
+
+  const selectedTenantId = formData.tenant;
+  const selectedTenant = tenants.find(t => t.id === selectedTenantId);
+  const tenantAssignedHouseId = selectedTenant ? selectedTenant.house : null;
+
+  const availableHouses = houses.filter(h => 
+    h.status === 'vacant' || 
+    (tenantAssignedHouseId && h.id === tenantAssignedHouseId) || 
+    (editMode && currentContract && h.id === currentContract.house)
+  );
 
   if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
 
@@ -320,9 +367,13 @@ function ContractManagement() {
                 error={!!fieldErrors.tenant}
                 helperText={fieldErrors.tenant}
             >
-                {tenants.map((tenant) => (
-                <MenuItem key={tenant.id} value={tenant.id}>{tenant.user.first_name} {tenant.user.last_name}</MenuItem>
-                ))}
+                {availableTenants.length === 0 && !editMode ? (
+                    <MenuItem disabled>No eligible tenants available (All have active contracts)</MenuItem>
+                ) : (
+                    availableTenants.map((tenant) => (
+                        <MenuItem key={tenant.id} value={tenant.id}>{tenant.user.first_name} {tenant.user.last_name}</MenuItem>
+                    ))
+                )}
             </TextField>
 
             <TextField
@@ -330,16 +381,20 @@ function ContractManagement() {
                 label="House"
                 name="house"
                 value={formData.house}
-                onChange={handleInputChange}
+                onChange={handleHouseChange} // <--- UPDATED HANDLER
                 required
                 fullWidth
                 disabled={editMode}
                 error={!!fieldErrors.house}
                 helperText={fieldErrors.house}
             >
-                {houses.map((house) => (
-                <MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type}</MenuItem>
-                ))}
+                {availableHouses.length === 0 && !editMode ? (
+                    <MenuItem disabled>No available houses</MenuItem>
+                ) : (
+                    availableHouses.map((house) => (
+                        <MenuItem key={house.id} value={house.id}>{house.house_number} - {house.house_type} (KES {house.rent_amount})</MenuItem>
+                    ))
+                )}
             </TextField>
 
             <Divider sx={{ my: 1 }} />
@@ -369,7 +424,7 @@ function ContractManagement() {
                 value={formData.terms}
                 onChange={handleInputChange}
                 multiline
-                rows={3}
+                rows={5}
                 fullWidth
                 placeholder="E.g., No pets allowed, Water bill included..."
                 error={!!fieldErrors.terms}
