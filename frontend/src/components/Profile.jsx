@@ -10,10 +10,21 @@ import {
   Grid,
   Alert,
   CircularProgress,
-  InputAdornment
+  InputAdornment,
+  Divider,
+  IconButton
 } from '@mui/material';
-import { PhotoCamera, Save, Lock, Person, Email, Phone, Badge } from '@mui/icons-material';
-import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
+import { 
+    PhotoCamera, 
+    Save, 
+    Lock, 
+    Person, 
+    Email, 
+    Phone, 
+    Badge, 
+    ManageAccounts 
+} from '@mui/icons-material';
+import { parseBackendErrors } from '../utils/errorHandler';
 
 function Profile() {
   const [loading, setLoading] = useState(true);
@@ -21,7 +32,7 @@ function Profile() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // NEW: Field-level errors
+  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   // Cache buster timestamp
@@ -82,8 +93,6 @@ function Profile() {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setProfileData(prev => ({ ...prev, [name]: value }));
-    
-    // Clear field error when user types
     if (fieldErrors[name]) {
       setFieldErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -92,8 +101,6 @@ function Profile() {
   const handlePasswordChange = (e) => {
     const { name, value } = e.target;
     setPasswordData(prev => ({ ...prev, [name]: value }));
-    
-    // Clear field error when user types
     if (fieldErrors[name]) {
       setFieldErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -112,7 +119,7 @@ function Profile() {
     setSaving(true);
     setError('');
     setSuccess('');
-    setFieldErrors({}); // Clear all field errors
+    setFieldErrors({});
 
     try {
       const token = localStorage.getItem('access_token');
@@ -138,16 +145,13 @@ function Profile() {
 
       if (response.ok) {
         setSuccess('Profile updated successfully');
-        setError('');
         localStorage.setItem('user', JSON.stringify(data.user));
-
-        // Clear previews and re-fetch to get the server URL
         setNewProfileImage(null);
         setPreviewImage(null);
         fetchProfile();
       } else {
         const { global, fields } = parseBackendErrors(data);
-        setError(global || 'Failed to update profile. Please check the form.');
+        setError(global || 'Failed to update profile.');
         setFieldErrors(fields);
       }
     } catch (err) {
@@ -160,7 +164,6 @@ function Profile() {
   const handleSavePassword = async (e) => {
     e.preventDefault();
     
-    // Client-side validation
     if (passwordData.new_password !== passwordData.confirm_password) {
       setFieldErrors({ confirm_password: 'New passwords do not match' });
       return;
@@ -187,12 +190,11 @@ function Profile() {
 
       if (response.ok) {
         setSuccess('Password changed successfully');
-        setError('');
         setPasswordData({ old_password: '', new_password: '', confirm_password: '' });
       } else {
         const data = await response.json();
         const { global, fields } = parseBackendErrors(data);
-        setError(global || 'Failed to change password. Please check the form.');
+        setError(global || 'Failed to change password.');
         setFieldErrors(fields);
       }
     } catch (err) {
@@ -202,71 +204,77 @@ function Profile() {
     }
   };
 
-  // Helper to construct the correct image URL
   const getProfileImageUrl = () => {
     if (previewImage) return previewImage;
     if (!profileData.profile_picture) return undefined;
-
-    // Check if the URL is already absolute (contains http)
     if (profileData.profile_picture.startsWith('http')) {
       return `${profileData.profile_picture}?t=${imageHash}`;
     }
-
-    // If relative, append localhost
     return `http://localhost:8000${profileData.profile_picture}?t=${imageHash}`;
   };
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
   return (
-    <Container maxWidth="md" sx={{ mb: 4 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-        My Profile
-      </Typography>
+    <Container maxWidth="sm" sx={{ mb: 4, mt: 2 }}>
+      
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess('')}>{success}</Alert>}
-
-      <Paper sx={{ p: 4, mb: 4 }}>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <Person sx={{ mr: 1 }} /> Personal Details
-        </Typography>
+      <Paper elevation={2} sx={{ p: 3, borderRadius: 2 }}>
+        
+        {/* --- Minimal Header --- */}
+        <Alert severity="info" icon={<ManageAccounts />} sx={{ mb: 3 }}>
+            Manage your personal details and security
+        </Alert>
 
         <form onSubmit={handleSaveProfile}>
-          <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
-            <Avatar
-              src={getProfileImageUrl()}
-              sx={{ width: 120, height: 120, mb: 2, border: '4px solid white', boxShadow: 3 }}
-            />
-            <Button variant="outlined" component="label" startIcon={<PhotoCamera />}>
-              Change Photo
-              <input type="file" hidden accept="image/*" onChange={handleImageChange} />
-            </Button>
+          <Box display="flex" flexDirection="column" alignItems="center" mb={3}>
+            <Box position="relative">
+                <Avatar
+                src={getProfileImageUrl()}
+                sx={{ width: 100, height: 100, border: '3px solid #e0e0e0', boxShadow: 1 }}
+                />
+                <IconButton 
+                    component="label" 
+                    size="small"
+                    sx={{ 
+                        position: 'absolute', bottom: 0, right: 0, 
+                        bgcolor: 'primary.main', color: 'white',
+                        '&:hover': { bgcolor: 'primary.dark' }
+                    }}
+                >
+                    <PhotoCamera fontSize="small" />
+                    <input type="file" hidden accept="image/*" onChange={handleImageChange} />
+                </IconButton>
+            </Box>
           </Box>
 
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6}>
+          <Grid container spacing={2}>
+            {/* Read Only Row */}
+            <Grid item xs={6}>
               <TextField
                 label="First Name"
                 value={profileData.first_name}
                 fullWidth
                 disabled
+                size="small"
                 variant="filled"
-                InputProps={{ startAdornment: <InputAdornment position="start"><Badge /></InputAdornment> }}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={6}>
               <TextField
                 label="Last Name"
                 value={profileData.last_name}
                 fullWidth
                 disabled
+                size="small"
                 variant="filled"
-                InputProps={{ startAdornment: <InputAdornment position="start"><Badge /></InputAdornment> }}
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            {/* Editable Fields Stacked Vertically */}
+            <Grid item xs={12}>
               <TextField
                 label="Username"
                 name="username"
@@ -274,64 +282,69 @@ function Profile() {
                 onChange={handleInputChange}
                 fullWidth
                 required
-                InputProps={{ startAdornment: <InputAdornment position="start"><Person /></InputAdornment> }}
+                size="small"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }}
                 error={!!fieldErrors.username}
                 helperText={fieldErrors.username}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            
+            <Grid item xs={12}>
               <TextField
-                label="Email"
+                label="Email Address"
                 name="email"
                 value={profileData.email}
                 onChange={handleInputChange}
                 fullWidth
                 required
-                InputProps={{ startAdornment: <InputAdornment position="start"><Email /></InputAdornment> }}
+                size="small"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Email fontSize="small" /></InputAdornment> }}
                 error={!!fieldErrors.email}
                 helperText={fieldErrors.email}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+
+            <Grid item xs={12}>
               <TextField
-                label="Phone"
+                label="Phone Number"
                 name="phone"
                 value={profileData.phone}
                 onChange={handleInputChange}
                 fullWidth
-                InputProps={{ startAdornment: <InputAdornment position="start"><Phone /></InputAdornment> }}
+                size="small"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Phone fontSize="small" /></InputAdornment> }}
                 error={!!fieldErrors.phone}
                 helperText={fieldErrors.phone}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+
+            <Grid item xs={12}>
               <TextField
-                label="ID Number"
+                label="National ID"
                 value={profileData.id_number}
                 fullWidth
                 disabled
                 variant="filled"
-                helperText="Contact admin to change ID"
-                InputProps={{ startAdornment: <InputAdornment position="start"><Badge /></InputAdornment> }}
+                size="small"
+                helperText="Contact admin to update ID"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Badge fontSize="small" /></InputAdornment> }}
               />
             </Grid>
+
+            <Grid item xs={12}>
+                <Button type="submit" variant="contained" fullWidth startIcon={<Save />} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save Profile'}
+                </Button>
+            </Grid>
           </Grid>
-
-          <Box mt={3} display="flex" justifyContent="flex-end">
-            <Button type="submit" variant="contained" size="large" startIcon={<Save />} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Profile'}
-            </Button>
-          </Box>
         </form>
-      </Paper>
 
-      <Paper sx={{ p: 4 }}>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <Lock sx={{ mr: 1 }} /> Change Password
-        </Typography>
+        <Divider sx={{ my: 4 }}>
+            <Typography variant="caption" color="text.secondary">SECURITY</Typography>
+        </Divider>
 
         <form onSubmit={handleSavePassword}>
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
                 label="Current Password"
@@ -341,11 +354,13 @@ function Profile() {
                 onChange={handlePasswordChange}
                 fullWidth
                 required
+                size="small"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Lock fontSize="small" /></InputAdornment> }}
                 error={!!fieldErrors.old_password}
                 helperText={fieldErrors.old_password}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={6}>
               <TextField
                 label="New Password"
                 name="new_password"
@@ -354,30 +369,31 @@ function Profile() {
                 onChange={handlePasswordChange}
                 fullWidth
                 required
+                size="small"
                 error={!!fieldErrors.new_password}
                 helperText={fieldErrors.new_password}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={6}>
               <TextField
-                label="Confirm New Password"
+                label="Confirm"
                 name="confirm_password"
                 type="password"
                 value={passwordData.confirm_password}
                 onChange={handlePasswordChange}
                 fullWidth
                 required
+                size="small"
                 error={!!fieldErrors.confirm_password}
                 helperText={fieldErrors.confirm_password}
               />
             </Grid>
+            <Grid item xs={12}>
+                <Button type="submit" variant="outlined" color="error" fullWidth disabled={saving}>
+                    {saving ? 'Updating...' : 'Update Password'}
+                </Button>
+            </Grid>
           </Grid>
-
-          <Box mt={3} display="flex" justifyContent="flex-end">
-            <Button type="submit" variant="contained" color="error" size="large" startIcon={<Lock />} disabled={saving}>
-              {saving ? 'Updating...' : 'Update Password'}
-            </Button>
-          </Box>
         </form>
       </Paper>
     </Container>

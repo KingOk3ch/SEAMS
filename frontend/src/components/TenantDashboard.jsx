@@ -10,7 +10,7 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate } from 'react-router-dom';
-import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
+import { parseBackendErrors } from '../utils/errorHandler';
 
 function TenantDashboard() {
   const [tenantData, setTenantData] = useState(null);
@@ -21,7 +21,7 @@ function TenantDashboard() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // NEW: Field-level errors
+  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   // Payment Dialog State
@@ -63,8 +63,24 @@ function TenantDashboard() {
         return;
       }
 
+      // FIX: Fetch House Details specifically to get the Rent Amount
+      if (myTenant.house) {
+          try {
+              const houseRes = await fetch(`http://localhost:8000/api/houses/${myTenant.house}/`, { headers });
+              if (houseRes.ok) {
+                  const houseData = await houseRes.json();
+                  // Attach real rent amount to tenant object for display
+                  myTenant.rent_amount = houseData.rent_amount; 
+              }
+          } catch (e) {
+              console.error("Could not fetch house details");
+          }
+      }
+
       setTenantData(myTenant);
-      setPayForm(prev => ({ ...prev, amount: myTenant.house?.rent_amount || '' }));
+      
+      // Auto-fill payment amount with house rent if available
+      setPayForm(prev => ({ ...prev, amount: myTenant.rent_amount || '' }));
 
       // --- 2. Fetch Payments ---
       const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
@@ -158,7 +174,6 @@ function TenantDashboard() {
     }
   };
 
-  // NEW: Clear field errors on input
   const handlePayFormChange = (field, value) => {
     setPayForm(prev => ({ ...prev, [field]: value }));
     if (fieldErrors[field]) {
@@ -174,7 +189,6 @@ function TenantDashboard() {
     return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  // Status Chip Helper
   const getStatusChip = (p) => {
       if(p.status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
       if(p.status === 'verified' || p.is_verified) return <Chip label="Verified" color="success" size="small" />;
@@ -257,7 +271,8 @@ function TenantDashboard() {
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
             title="My House"
             value={tenantData.house_number}
-            subtext={`Rent: ${formatCurrency(tenantData.house?.rent_amount || 0)}`}
+            // FIX: Using the fetched rent_amount
+            subtext={`Rent: ${formatCurrency(tenantData.rent_amount || 0)} / month`}
             path={null}
           />
         </Grid>
