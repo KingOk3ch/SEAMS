@@ -9,12 +9,11 @@ import BuildIcon from '@mui/icons-material/Build';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
-import ArticleIcon from '@mui/icons-material/Article'; // Lease Icon
-import EventIcon from '@mui/icons-material/Event'; // Date Icon
+import ArticleIcon from '@mui/icons-material/Article';
+import EventIcon from '@mui/icons-material/Event';
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 
-// --- NEW: Standard Terms Fallback ---
 const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
 2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
 3. Utilities: Tenant pays for electricity (Token) and Water bill.
@@ -24,7 +23,7 @@ const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of ever
 
 function TenantDashboard() {
   const [tenantData, setTenantData] = useState(null);
-  const [contractData, setContractData] = useState(null); // NEW: Store Contract
+  const [contractData, setContractData] = useState(null);
   const [payments, setPayments] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
   const [outstandingBalance, setOutstandingBalance] = useState(0);
@@ -32,12 +31,10 @@ function TenantDashboard() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // Dialog States
   const [openPayDialog, setOpenPayDialog] = useState(false);
-  const [openLeaseDialog, setOpenLeaseDialog] = useState(false); // NEW: Lease Dialog
+  const [openLeaseDialog, setOpenLeaseDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
 
   const [payForm, setPayForm] = useState({
@@ -75,7 +72,6 @@ function TenantDashboard() {
         return;
       }
 
-      // PRESERVED: Fetch House Details specifically to get the Rent Amount
       if (myTenant.house) {
           try {
               const houseRes = await fetch(`http://localhost:8000/api/houses/${myTenant.house}/`, { headers });
@@ -83,22 +79,19 @@ function TenantDashboard() {
                   const houseData = await houseRes.json();
                   myTenant.rent_amount = houseData.rent_amount; 
               }
-          } catch (e) {
-              console.error("Could not fetch house details");
-          }
+          } catch (e) { console.error("Could not fetch house details"); }
       }
 
       setTenantData(myTenant);
       
-      // Auto-fill payment amount
+      // Default: set amount to rent if balance is 0
       setPayForm(prev => ({ ...prev, amount: myTenant.rent_amount || '' }));
 
-      // --- 2. Fetch Active Contract (NEW) ---
+      // --- 2. Fetch Active Contract ---
       try {
           const contractRes = await fetch(`http://localhost:8000/api/contracts/`, { headers });
           if (contractRes.ok) {
               let allContracts = await contractRes.json();
-              // Find contract belonging to this tenant
               const myContract = allContracts.find(c => c.tenant === myTenant.id);
               if (myContract) setContractData(myContract);
           }
@@ -111,7 +104,6 @@ function TenantDashboard() {
 
       const myPayments = allPayments.filter(p => p.tenant === myTenant.id);
 
-      // PRESERVED: Strict Sorting Logic
       myPayments.sort((a, b) => {
           const getScore = (p) => {
               if (p.is_verified || p.status === 'verified') return 3;
@@ -120,23 +112,27 @@ function TenantDashboard() {
           };
           const scoreA = getScore(a);
           const scoreB = getScore(b);
-
           if (scoreA !== scoreB) return scoreA - scoreB;
           return new Date(b.payment_date) - new Date(a.payment_date);
       });
 
       setPayments(myPayments);
 
-      // --- 4. Fetch Bills & Calculate Balance ---
+      // --- 4. Fetch Bills & Calculate Smart Balance ---
       const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
       let allBills = await billsResponse.json();
       if (allBills.results) allBills = allBills.results;
 
       const myBills = allBills.filter(b => b.tenant === myTenant.id);
 
+      // UPDATED LOGIC: Subtract amount_paid from total bill amount
       const totalUnpaid = myBills
           .filter(b => !b.is_paid)
-          .reduce((sum, b) => sum + parseFloat(b.amount), 0);
+          .reduce((sum, b) => {
+              const billAmount = parseFloat(b.amount) || 0;
+              const paidAmount = parseFloat(b.amount_paid) || 0;
+              return sum + (billAmount - paidAmount);
+          }, 0);
 
       setOutstandingBalance(totalUnpaid);
 
@@ -157,6 +153,18 @@ function TenantDashboard() {
     setPayLoading(true);
     setFieldErrors({});
     setError('');
+
+    // --- FRONTEND VALIDATION: REGEX ---
+    // If M-Pesa or Bank, ensure strict format (Alphanumeric only)
+    if (['mpesa', 'bank'].includes(payForm.method)) {
+        const strictRegex = /^[A-Z0-9]+$/;
+        if (!strictRegex.test(payForm.reference)) {
+             setFieldErrors({ reference: "Code must be UPPERCASE letters/numbers only (no spaces/symbols)." });
+             setPayLoading(false);
+             return;
+        }
+    }
+
     try {
         const token = localStorage.getItem('access_token');
         const paymentData = {
@@ -182,7 +190,7 @@ function TenantDashboard() {
             setSuccess("Payment Recorded! Waiting for Admin Verification.");
             setError('');
             setOpenPayDialog(false);
-            fetchTenantData();
+            fetchTenantData(); // Refresh to see update
         } else {
             const errorData = await res.json();
             const { global, fields } = parseBackendErrors(errorData);
@@ -222,7 +230,6 @@ function TenantDashboard() {
     return ['new', 'pending', 'assigned', 'in_progress'].includes(status);
   }).length;
 
-  // --- Contract Status Logic ---
   const getContractStatus = () => {
       if (!contractData) return { label: 'No Lease', color: 'default' };
       const today = new Date();
@@ -240,7 +247,6 @@ function TenantDashboard() {
     return <Container maxWidth="lg"><Alert severity="warning">{error || "No tenant record found."}</Alert></Container>;
   }
 
-  // --- Reusable Dashboard Card ---
   const DashboardCard = ({ icon, title, value, subtext, color, path, onClick, bgcolor }) => (
     <Card
         sx={{
@@ -280,13 +286,29 @@ function TenantDashboard() {
     <Container maxWidth="lg">
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Typography variant="h4">My Dashboard</Typography>
+        
+        {/* --- SMART PAY BUTTON --- */}
         <Button
             variant="contained"
-            color="success"
+            color={outstandingBalance > 0 ? "error" : "success"} // Red if balance due, else Green
             startIcon={<AddCardIcon />}
-            onClick={() => { setOpenPayDialog(true); setFieldErrors({}); setError(''); setSuccess(''); }}
+            onClick={() => { 
+                setOpenPayDialog(true); 
+                setFieldErrors({}); 
+                setError(''); 
+                setSuccess(''); 
+                
+                // If they owe money, auto-fill the balance
+                if (outstandingBalance > 0) {
+                    setPayForm(prev => ({
+                        ...prev,
+                        amount: outstandingBalance.toString(),
+                        payment_type: 'rent' // Assumption: Usually rent, but could be general
+                    }));
+                }
+            }}
         >
-            Pay Rent
+            {outstandingBalance > 0 ? `Pay Balance (${formatCurrency(outstandingBalance)})` : "Make Payment"}
         </Button>
       </Box>
 
@@ -294,7 +316,6 @@ function TenantDashboard() {
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Balance Card */}
         <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<AccountBalanceWalletIcon color={outstandingBalance > 100 ? "error" : "success"} sx={{ fontSize: 40 }} />}
@@ -306,7 +327,6 @@ function TenantDashboard() {
           />
         </Grid>
 
-        {/* House Card */}
         <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<HomeIcon color="primary" sx={{ fontSize: 40 }} />}
@@ -317,7 +337,6 @@ function TenantDashboard() {
           />
         </Grid>
 
-        {/* Maintenance Card */}
         <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<BuildIcon color="warning" sx={{ fontSize: 40 }} />}
@@ -328,7 +347,6 @@ function TenantDashboard() {
           />
         </Grid>
 
-        {/* NEW: My Lease Card */}
         <Grid item xs={12} sm={6} md={3}>
           <DashboardCard
             icon={<ArticleIcon color="info" sx={{ fontSize: 40 }} />}
@@ -341,7 +359,6 @@ function TenantDashboard() {
         </Grid>
       </Grid>
 
-      {/* Recent Payments Table */}
       <Paper sx={{ mb: 3 }}>
         <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="h6">Recent Payments</Typography>
@@ -426,8 +443,8 @@ function TenantDashboard() {
                     value={payForm.reference}
                     onChange={(e) => handlePayFormChange('reference', e.target.value)}
                     fullWidth
-                    inputProps={{ maxLength: 4 }}
-                    helperText={fieldErrors.reference || "e.g. QK23"}
+                    inputProps={{ maxLength: 10 }} // Updated to allow full M-Pesa code
+                    helperText={fieldErrors.reference || "e.g. QK782..."}
                     error={!!fieldErrors.reference}
                 />
             </Box>
@@ -467,7 +484,6 @@ function TenantDashboard() {
 
                     <Divider />
                     <Typography variant="caption" fontWeight="bold" color="text.secondary">TERMS & CONDITIONS</Typography>
-                    {/* AUTOMATIC TERMS FALLBACK */}
                     <TextField 
                         multiline 
                         rows={6} 

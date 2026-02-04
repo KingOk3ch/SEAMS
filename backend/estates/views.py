@@ -4,11 +4,11 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from datetime import date, timedelta
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction # <--- ADDED transaction
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 from users.models import Notification
-from users.permissions import IsEstateAdminOrReadOnly # NEW IMPORT
+from users.permissions import IsEstateAdminOrReadOnly
 
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
@@ -130,48 +130,70 @@ class PaymentViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(is_verified=False, status='pending', archived_tenant_name=tenant_name)
 
+    # --- UPDATED: SMART VERIFICATION LOGIC ---
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         if getattr(request.user, 'role', None) != 'estate_admin':
             return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
             
         payment = self.get_object()
+        
+        # 1. Idempotency Check
         if payment.status == 'verified':
              return Response({'status': 'warning', 'message': 'Payment was already verified'})
 
-        payment.is_verified = True
-        payment.status = 'verified'
-        payment.rejection_reason = None
-        payment.save()
+        with transaction.atomic():
+            payment.is_verified = True
+            payment.status = 'verified'
+            payment.rejection_reason = None
+            payment.save()
 
-        # Link Payment to Bill Logic
-        if payment.payment_type in ['water', 'electricity', 'garbage', 'damage', 'other', 'rent', 'penalty']:
+            # 2. Smart Allocation Logic
+            # Find unpaid bills of the SAME type (e.g. Water pays Water), ordered by Oldest First
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
                 bill_type=payment.payment_type,
                 is_paid=False
-            )
+            ).order_by('month_for')
             
+            # If the payment specifies a specific month, narrow it down
             if payment.month_for:
                  matching_bills = matching_bills.filter(
                     month_for__year=payment.month_for.year,
                     month_for__month=payment.month_for.month
                  )
 
-            bills_cleared = 0
-            remaining_amount = payment.amount
+            remaining_credit = payment.amount
+            bills_updated_count = 0
 
             for bill in matching_bills:
-                if remaining_amount >= bill.amount:
+                if remaining_credit <= 0:
+                    break
+                
+                # Calculate what this bill needs
+                bill_balance = bill.amount - bill.amount_paid
+                
+                # Pay what we can (either full balance or remaining credit)
+                amount_to_pay = min(remaining_credit, bill_balance)
+                
+                # Update Bill
+                bill.amount_paid += amount_to_pay
+                
+                # Check if fully paid
+                if bill.amount_paid >= bill.amount:
                     bill.is_paid = True
-                    bill.save()
-                    remaining_amount -= bill.amount
-                    bills_cleared += 1
+                
+                bill.save()
+                
+                # Deduct from wallet
+                remaining_credit -= amount_to_pay
+                bills_updated_count += 1
             
-            if bills_cleared > 0:
-                return Response({'status': 'verified', 'message': f'Verified. {bills_cleared} Bill(s) paid.'})
+            message = f'Payment Verified. {bills_updated_count} bill(s) updated.'
+            if remaining_credit > 0:
+                message += f' (KES {remaining_credit} credit remaining)'
 
-        return Response({'status': 'verified', 'message': 'Payment verified successfully'})
+            return Response({'status': 'verified', 'message': message})
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):

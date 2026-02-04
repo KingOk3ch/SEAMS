@@ -71,6 +71,10 @@ class Contract(models.Model):
     end_date = models.DateField()
     monthly_rent = models.DecimalField(max_digits=10, decimal_places=2)
     deposit_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # --- ADDED: To support custom lease terms ---
+    terms = models.TextField(blank=True, null=True)
+    
     contract_document = models.FileField(upload_to='contracts/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -101,7 +105,6 @@ class Payment(models.Model):
         ('other', 'Other'),
     ]
 
-    # --- NEW STATUS CHOICES ---
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('verified', 'Verified'),
@@ -113,13 +116,19 @@ class Payment(models.Model):
     payment_date = models.DateField()
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='rent')
-    reference_number = models.CharField(max_length=50, blank=True)
+    
+    # --- UPDATED: Enforce Uniqueness to prevent duplicates ---
+    reference_number = models.CharField(
+        max_length=50, 
+        blank=True, 
+        unique=True, 
+        error_messages={'unique': "This transaction code has already been used."}
+    )
+    
     month_for = models.DateField(help_text="Month this payment covers")
     
-    # Kept for backward compatibility, but 'status' is the new logic driver
     is_verified = models.BooleanField(default=False)
     
-    # --- NEW FIELDS ---
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     rejection_reason = models.TextField(blank=True, null=True)
     
@@ -148,6 +157,10 @@ class Bill(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='bills')
     bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # --- ADDED: Track partial payments ---
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    
     month_for = models.DateField(help_text="Month this bill applies to")
     description = models.TextField(blank=True, null=True)
     is_paid = models.BooleanField(default=False)
@@ -162,6 +175,11 @@ class Bill(models.Model):
 
     def __str__(self):
         return f"Bill: {self.get_bill_type_display()} - {self.tenant.user.get_full_name()}"
+    
+    # Helper to easily check balance in templates/views
+    @property
+    def balance_due(self):
+        return self.amount - self.amount_paid
 
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
