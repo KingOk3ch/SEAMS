@@ -2,19 +2,19 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, CircularProgress, Alert, Chip, Button, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab
+  DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab, Badge
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-import HomeIcon from '@mui/icons-material/Home';
-import WaterDropIcon from '@mui/icons-material/WaterDrop';
-import CategoryIcon from '@mui/icons-material/Category';
-import PaymentIcon from '@mui/icons-material/Payment';
+import HistoryIcon from '@mui/icons-material/History';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { parseBackendErrors } from '../utils/errorHandler';
 
 function PaymentManagement() {
-  // 0: All, 1: Rent, 2: Utilities, 3: Others, 4: Bills
+  // 0: Verification Queue (Default), 1: Payment History, 2: Bills
   const [tabIndex, setTabIndex] = useState(0);
   const [payments, setPayments] = useState([]);
   const [bills, setBills] = useState([]);
@@ -62,30 +62,20 @@ function PaymentManagement() {
         fetch('http://localhost:8000/api/tenants/', { headers })
       ]);
 
-      // --- 1. Handle Payments ---
       let payData = await payRes.json();
       if (payData.results) payData = payData.results;
 
-      // STRICT SORTING (PRESERVED)
-      // Pending (1) -> Rejected (2) -> Verified (3)
+      // Sort: Pending first, then by date
       payData.sort((a, b) => {
-          const getScore = (p) => {
-              if (p.is_verified || p.status === 'verified') return 3;
-              if (p.status === 'rejected') return 2;
-              return 1;
-          };
-          const scoreA = getScore(a);
-          const scoreB = getScore(b);
-          if (scoreA !== scoreB) return scoreA - scoreB; 
+          if (a.status === 'pending' && b.status !== 'pending') return -1;
+          if (a.status !== 'pending' && b.status === 'pending') return 1;
           return new Date(b.payment_date) - new Date(a.payment_date);
       });
 
-      // --- 2. Handle Bills ---
       let billData = await billRes.json();
       if (billData.results) billData = billData.results;
       billData.sort((a, b) => (a.is_paid === b.is_paid) ? 0 : a.is_paid ? 1 : -1);
 
-      // --- 3. Handle Tenants ---
       let tenData = await tenRes.json();
       if (tenData.results) tenData = tenData.results;
 
@@ -99,20 +89,24 @@ function PaymentManagement() {
     }
   };
 
+  // --- SMART VERIFY HANDLER ---
   const handleVerifyPayment = async (id) => {
-    if(!window.confirm("Confirm verification?")) return;
+    if(!window.confirm("Confirm verification? This will automatically allocate funds to unpaid bills.")) return;
     try {
         const token = localStorage.getItem('access_token');
         const res = await fetch(`http://localhost:8000/api/payments/${id}/verify/`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        const data = await res.json();
+        
         if(res.ok) {
-            setSuccess('Payment verified successfully');
+            // SHOW THE SMART MESSAGE FROM BACKEND (e.g. "Verified. 2 Bills Paid")
+            setSuccess(data.message || 'Payment verified successfully');
             setError('');
             fetchData();
         } else {
-            const data = await res.json();
             const { global } = parseBackendErrors(data);
             setError(global || 'Verification failed');
         }
@@ -202,39 +196,26 @@ function PaymentManagement() {
 
   const handlePayFormChange = (field, value) => {
     setPayForm(prev => ({ ...prev, [field]: value }));
-    if (fieldErrors[field]) {
-      setFieldErrors(prev => ({ ...prev, [field]: '' }));
-    }
+    if (fieldErrors[field]) setFieldErrors(prev => ({ ...prev, [field]: '' }));
   };
 
   const handleBillFormChange = (field, value) => {
     setBillForm(prev => ({ ...prev, [field]: value }));
-    if (fieldErrors[field]) {
-      setFieldErrors(prev => ({ ...prev, [field]: '' }));
-    }
+    if (fieldErrors[field]) setFieldErrors(prev => ({ ...prev, [field]: '' }));
   };
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
 
-  const getStatusChip = (status, is_verified) => {
+  const getStatusChip = (status) => {
       if (status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
-      if (status === 'verified' || is_verified) return <Chip label="Verified" color="success" size="small" />;
-      return <Chip label="Pending" color="warning" size="small" />;
+      if (status === 'verified') return <Chip label="Verified" color="success" size="small" />;
+      return <Chip label="Pending Action" color="warning" variant="filled" size="small" />;
   };
 
   // --- FILTERING LOGIC ---
-  const rentPayments = payments.filter(p => p.payment_type === 'rent');
-  const utilityPayments = payments.filter(p => ['water', 'electricity', 'garbage'].includes(p.payment_type));
-  const otherPayments = payments.filter(p => ['deposit', 'damage', 'penalty', 'other'].includes(p.payment_type));
-
-  let displayedPayments = [];
-  switch (tabIndex) {
-      case 0: displayedPayments = payments; break;
-      case 1: displayedPayments = rentPayments; break;
-      case 2: displayedPayments = utilityPayments; break;
-      case 3: displayedPayments = otherPayments; break;
-      default: displayedPayments = payments;
-  }
+  const pendingPayments = payments.filter(p => p.status === 'pending');
+  // History = Verified OR Rejected
+  const historyPayments = payments.filter(p => p.status !== 'pending');
 
   if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
 
@@ -242,68 +223,84 @@ function PaymentManagement() {
     <Container maxWidth="lg">
       <Box mb={4}>
         <Typography variant="h4" gutterBottom>Financial Management</Typography>
+        
+        {/* --- CLEANER TABS --- */}
         <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} textColor="primary" indicatorColor="primary" variant="scrollable" scrollButtons="auto">
-            <Tab icon={<PaymentIcon />} iconPosition="start" label={`All (${payments.length})`} />
-            <Tab icon={<HomeIcon />} iconPosition="start" label={`Rent (${rentPayments.length})`} />
-            <Tab icon={<WaterDropIcon />} iconPosition="start" label={`Utilities (${utilityPayments.length})`} />
-            <Tab icon={<CategoryIcon />} iconPosition="start" label={`Others (${otherPayments.length})`} />
-            <Tab icon={<ReceiptIcon />} iconPosition="start" label={`Bills & Invoices (${bills.length})`} />
+            {/* TAB 0: VERIFICATION QUEUE */}
+            <Tab 
+                icon={<Badge badgeContent={pendingPayments.length} color="error"><AssignmentTurnedInIcon /></Badge>} 
+                iconPosition="start" 
+                label="Verification Queue" 
+            />
+            {/* TAB 1: HISTORY */}
+            <Tab icon={<HistoryIcon />} iconPosition="start" label="Payment History" />
+            {/* TAB 2: BILLS */}
+            <Tab icon={<ReceiptIcon />} iconPosition="start" label="Bills & Invoices" />
         </Tabs>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {/* --- PAYMENTS TABS (Index 0-3) --- */}
-      {tabIndex < 4 && (
-        <>
+      {/* --- TAB 0: VERIFICATION QUEUE (ACTIONABLE) --- */}
+      {tabIndex === 0 && (
+          <>
             <Box display="flex" justifyContent="flex-end" mb={2}>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setOpenPayDialog(true); setFieldErrors({}); setError(''); }}>
-                    Record Payment
+                 {/* Only show "Add" if you really need manual entry here, otherwise keep it clean */}
+                <Button variant="outlined" startIcon={<AddIcon />} onClick={() => { setOpenPayDialog(true); setFieldErrors({}); }}>
+                    Manual Entry
                 </Button>
             </Box>
-            <TableContainer component={Paper}>
+
+            <TableContainer component={Paper} elevation={3}>
                 <Table>
-                    <TableHead>
+                    <TableHead sx={{ bgcolor: '#fff3e0' }}>
                         <TableRow>
-                            <TableCell>Date</TableCell>
-                            <TableCell>Tenant</TableCell>
-                            <TableCell>Type</TableCell>
-                            <TableCell>Amount</TableCell>
-                            <TableCell>Ref (Last 4)</TableCell>
-                            <TableCell>Status</TableCell>
-                            <TableCell>Action</TableCell>
+                            <TableCell><strong>Date</strong></TableCell>
+                            <TableCell><strong>Tenant</strong></TableCell>
+                            <TableCell><strong>Type</strong></TableCell>
+                            <TableCell><strong>Amount</strong></TableCell>
+                            <TableCell><strong>Ref (Last 4)</strong></TableCell>
+                            <TableCell><strong>Method</strong></TableCell>
+                            <TableCell align="center"><strong>Actions</strong></TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {displayedPayments.length === 0 ? (
-                            <TableRow><TableCell colSpan={7} align="center">No payments found in this category.</TableCell></TableRow>
+                        {pendingPayments.length === 0 ? (
+                            <TableRow><TableCell colSpan={7} align="center" sx={{ py: 5 }}><Typography color="text.secondary">All caught up! No pending payments.</Typography></TableCell></TableRow>
                         ) : (
-                            displayedPayments.map((p) => {
+                            pendingPayments.map((p) => {
                                 const t = tenants.find(ten => ten.id === p.tenant);
                                 const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
-                                const house = t ? (t.house_number || (t.house ? t.house.house_number : '')) : '';
-                                const isActionable = !p.is_verified && p.status !== 'verified' && p.status !== 'rejected';
-
                                 return (
-                                <TableRow key={p.id}>
+                                <TableRow key={p.id} hover>
                                     <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
-                                    <TableCell>{name} ({house})</TableCell>
-                                    <TableCell>{p.payment_type.toUpperCase()}</TableCell>
-                                    <TableCell>{formatCurrency(p.amount)}</TableCell>
-                                    <TableCell>
-                                        <Typography fontWeight="bold">{p.reference_number}</Typography>
-                                        <Typography variant="caption" display="block">{p.payment_method}</Typography>
-                                    </TableCell>
-                                    <TableCell>{getStatusChip(p.status, p.is_verified)}</TableCell>
-                                    <TableCell>
-                                        {isActionable && (
-                                            <Box display="flex" gap={1}>
-                                                <Button size="small" variant="contained" color="primary" onClick={() => handleVerifyPayment(p.id)} sx={{ borderRadius: '50px', textTransform: 'none' }}>Verify</Button>
-                                                <Button size="small" variant="contained" color="error" onClick={() => handleOpenReject(p.id)} sx={{ borderRadius: '50px', textTransform: 'none' }}>Reject</Button>
-                                            </Box>
-                                        )}
-                                        {p.status === 'rejected' && <Typography variant="caption" color="error">{p.rejection_reason || "Invalid"}</Typography>}
+                                    <TableCell>{name}</TableCell>
+                                    <TableCell><Chip label={p.payment_type.toUpperCase()} size="small" /></TableCell>
+                                    <TableCell><strong>{formatCurrency(p.amount)}</strong></TableCell>
+                                    <TableCell>{p.reference_number}</TableCell>
+                                    <TableCell>{p.payment_method}</TableCell>
+                                    <TableCell align="center">
+                                        <Box display="flex" justifyContent="center" gap={1}>
+                                            <Button 
+                                                variant="contained" 
+                                                color="success" 
+                                                size="small" 
+                                                startIcon={<CheckCircleIcon />}
+                                                onClick={() => handleVerifyPayment(p.id)}
+                                            >
+                                                Verify
+                                            </Button>
+                                            <Button 
+                                                variant="outlined" 
+                                                color="error" 
+                                                size="small" 
+                                                startIcon={<CancelIcon />}
+                                                onClick={() => handleOpenReject(p.id)}
+                                            >
+                                                Reject
+                                            </Button>
+                                        </Box>
                                     </TableCell>
                                 </TableRow>
                             )})
@@ -311,14 +308,55 @@ function PaymentManagement() {
                     </TableBody>
                 </Table>
             </TableContainer>
-        </>
+          </>
       )}
 
-      {/* --- BILLS TAB (Index 4) --- */}
-      {tabIndex === 4 && (
+      {/* --- TAB 1: HISTORY (READ ONLY) --- */}
+      {tabIndex === 1 && (
+        <TableContainer component={Paper}>
+            <Table>
+                <TableHead>
+                    <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Tenant</TableCell>
+                        <TableCell>Type</TableCell>
+                        <TableCell>Amount</TableCell>
+                        <TableCell>Ref</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Details</TableCell>
+                    </TableRow>
+                </TableHead>
+                <TableBody>
+                    {historyPayments.map((p) => {
+                        const t = tenants.find(ten => ten.id === p.tenant);
+                        const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
+                        return (
+                        <TableRow key={p.id}>
+                            <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
+                            <TableCell>{name}</TableCell>
+                            <TableCell>{p.payment_type.toUpperCase()}</TableCell>
+                            <TableCell>{formatCurrency(p.amount)}</TableCell>
+                            <TableCell>{p.reference_number}</TableCell>
+                            <TableCell>{getStatusChip(p.status)}</TableCell>
+                            <TableCell>
+                                {p.status === 'rejected' ? 
+                                    <Typography variant="caption" color="error">{p.rejection_reason}</Typography> : 
+                                    <Typography variant="caption" color="text.secondary">Processed</Typography>
+                                }
+                            </TableCell>
+                        </TableRow>
+                    )})}
+                    {historyPayments.length === 0 && <TableRow><TableCell colSpan={7} align="center">No history available.</TableCell></TableRow>}
+                </TableBody>
+            </Table>
+        </TableContainer>
+      )}
+
+      {/* --- TAB 2: BILLS --- */}
+      {tabIndex === 2 && (
         <>
             <Box display="flex" justifyContent="flex-end" mb={2}>
-                <Button variant="contained" color="secondary" startIcon={<ReceiptIcon />} onClick={() => { setOpenBillDialog(true); setFieldErrors({}); setError(''); }}>
+                <Button variant="contained" color="secondary" startIcon={<ReceiptLongIcon />} onClick={() => { setOpenBillDialog(true); setFieldErrors({}); setError(''); }}>
                     Post New Bill
                 </Button>
             </Box>
@@ -330,29 +368,27 @@ function PaymentManagement() {
                             <TableCell>Tenant</TableCell>
                             <TableCell>Bill Type</TableCell>
                             <TableCell>Amount</TableCell>
+                            <TableCell>Paid</TableCell>
+                            <TableCell>Balance</TableCell>
                             <TableCell>Status</TableCell>
-                            <TableCell>Description</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {bills.length === 0 ? (
-                            <TableRow><TableCell colSpan={6} align="center">No bills found.</TableCell></TableRow>
-                        ) : (
-                            bills.map((b) => {
-                                const t = tenants.find(ten => ten.id === b.tenant);
-                                const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
-                                const house = t ? (t.house_number || (t.house ? t.house.house_number : '')) : '';
-                                return (
-                                <TableRow key={b.id}>
-                                    <TableCell>{new Date(b.created_at).toLocaleDateString()}</TableCell>
-                                    <TableCell>{name} ({house})</TableCell>
-                                    <TableCell><Chip label={b.bill_type.toUpperCase()} variant="outlined" /></TableCell>
-                                    <TableCell>{formatCurrency(b.amount)}</TableCell>
-                                    <TableCell><Chip label={b.is_paid ? "PAID" : "Pending"} color={b.is_paid ? "success" : "error"} size="small" /></TableCell>
-                                    <TableCell>{b.description || '-'}</TableCell>
-                                </TableRow>
-                            )})
-                        )}
+                        {bills.map((b) => {
+                            const t = tenants.find(ten => ten.id === b.tenant);
+                            const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
+                            return (
+                            <TableRow key={b.id}>
+                                <TableCell>{new Date(b.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell>{name}</TableCell>
+                                <TableCell><Chip label={b.bill_type.toUpperCase()} variant="outlined" size="small" /></TableCell>
+                                <TableCell>{formatCurrency(b.amount)}</TableCell>
+                                <TableCell sx={{ color: 'green' }}>{formatCurrency(b.amount_paid)}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{formatCurrency(b.balance)}</TableCell>
+                                <TableCell><Chip label={b.is_paid ? "PAID" : "Pending"} color={b.is_paid ? "success" : "error"} size="small" /></TableCell>
+                            </TableRow>
+                        )})}
+                        {bills.length === 0 && <TableRow><TableCell colSpan={7} align="center">No bills posted.</TableCell></TableRow>}
                     </TableBody>
                 </Table>
             </TableContainer>
@@ -391,7 +427,7 @@ function PaymentManagement() {
                  <TextField select label="Method" value={payForm.payment_method} onChange={(e) => handlePayFormChange('payment_method', e.target.value)} fullWidth error={!!fieldErrors.payment_method} helperText={fieldErrors.payment_method}>
                     <MenuItem value="cash">Cash</MenuItem><MenuItem value="bank">Bank Transfer</MenuItem><MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                 </TextField>
-                <TextField label="Ref (Last 4 Digits)" value={payForm.reference_number} onChange={(e) => handlePayFormChange('reference_number', e.target.value)} fullWidth inputProps={{ maxLength: 4 }} helperText={fieldErrors.reference_number} error={!!fieldErrors.reference_number} />
+                <TextField label="Ref (Last 4 Digits)" value={payForm.reference_number} onChange={(e) => handlePayFormChange('reference_number', e.target.value)} fullWidth inputProps={{ maxLength: 10 }} helperText={fieldErrors.reference_number} error={!!fieldErrors.reference_number} />
             </Box>
         </DialogContent>
         <DialogActions>
@@ -400,31 +436,24 @@ function PaymentManagement() {
         </DialogActions>
       </Dialog>
 
-      {/* BILL DIALOG - Minimalist Style */}
+      {/* BILL DIALOG */}
       <Dialog open={openBillDialog} onClose={() => setOpenBillDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Post New Bill</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                
-                {/* Minimal Banner */}
                 <Alert severity="info" icon={<ReceiptLongIcon />}>
                     Create a new invoice for a tenant
                 </Alert>
-
                 <TextField select label="Tenant" value={billForm.tenant} onChange={(e) => handleBillFormChange('tenant', e.target.value)} fullWidth error={!!fieldErrors.tenant} helperText={fieldErrors.tenant}>
                     {tenants.map((t) => (
                         <MenuItem key={t.id} value={t.id}>{t.user.first_name} {t.user.last_name} ({t.house_number || (t.house ? t.house.house_number : '')})</MenuItem>
                     ))}
                 </TextField>
-                
                 <TextField select label="Bill Type" value={billForm.bill_type} onChange={(e) => handleBillFormChange('bill_type', e.target.value)} fullWidth error={!!fieldErrors.bill_type} helperText={fieldErrors.bill_type}>
                     {['water','electricity','garbage','damage','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                
                 <TextField label="Amount (KES)" type="number" value={billForm.amount} onChange={(e) => handleBillFormChange('amount', e.target.value)} fullWidth error={!!fieldErrors.amount} helperText={fieldErrors.amount} />
-                
                 <TextField label="Month For" type="date" value={billForm.month_for} onChange={(e) => handleBillFormChange('month_for', e.target.value)} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.month_for} helperText={fieldErrors.month_for} />
-                
                 <TextField label="Description (Optional)" value={billForm.description} onChange={(e) => handleBillFormChange('description', e.target.value)} fullWidth multiline rows={3} error={!!fieldErrors.description} helperText={fieldErrors.description} />
             </Box>
         </DialogContent>

@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
 from datetime import date, timedelta
-from django.db import IntegrityError, transaction # <--- ADDED transaction
+from django.db import IntegrityError, transaction
+from decimal import Decimal  # <--- IMPORTED FOR SAFE MATH
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 from users.models import Notification
@@ -108,13 +109,25 @@ class PaymentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         tenant_name = "Unknown"
         
+        # --- ADMIN MANUAL ENTRY FIX ---
         if getattr(user, 'role', None) == 'estate_admin':
             tenant_obj = serializer.validated_data.get('tenant')
-            if tenant_obj and tenant_obj.user:
-                tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
             
-            # Admin payments are auto-verified
-            serializer.save(is_verified=True, status='verified', archived_tenant_name=tenant_name)
+            if tenant_obj:
+                # Get name for archive
+                if tenant_obj.user:
+                    tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
+                
+                # CRITICAL: Explicitly save the tenant relationship so it appears on their dash
+                serializer.save(
+                    is_verified=True, 
+                    status='verified', 
+                    archived_tenant_name=tenant_name,
+                    tenant=tenant_obj 
+                )
+            else:
+                # Fallback if no tenant selected (rare)
+                serializer.save(is_verified=True, status='verified', archived_tenant_name=tenant_name)
             
         elif getattr(user, 'role', None) == 'tenant':
             try:
@@ -149,19 +162,17 @@ class PaymentViewSet(viewsets.ModelViewSet):
             payment.save()
 
             # 2. Smart Allocation Logic
-            # Find unpaid bills of the SAME type (e.g. Water pays Water), ordered by Oldest First
+            # Find ALL unpaid bills of the SAME type (e.g. Water pays Water), ordered by Oldest First
+            # We REMOVED the strict date filter so payments can clear arrears (old debts)
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
                 bill_type=payment.payment_type,
                 is_paid=False
             ).order_by('month_for')
             
-            # If the payment specifies a specific month, narrow it down
-            if payment.month_for:
-                 matching_bills = matching_bills.filter(
-                    month_for__year=payment.month_for.year,
-                    month_for__month=payment.month_for.month
-                 )
+            # Note: We commented out the month specific filter to allow flexible payments
+            # if payment.month_for:
+            #      matching_bills = matching_bills.filter(...)
 
             remaining_credit = payment.amount
             bills_updated_count = 0
@@ -171,6 +182,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     break
                 
                 # Calculate what this bill needs
+                # Ensure we use Decimals for safety
                 bill_balance = bill.amount - bill.amount_paid
                 
                 # Pay what we can (either full balance or remaining credit)

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from users.serializers import UserSerializer
 from datetime import date
 from django.db.models import Q
+from django.core.exceptions import ObjectDoesNotExist # <--- 1. ADDED THIS IMPORT
 import re
 import os
 
@@ -76,7 +77,6 @@ class ContractSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Contract
-        # ADDED 'terms' here
         fields = [
             'id', 'tenant', 'tenant_name', 'house', 'house_details', 'house_number',
             'start_date', 'end_date', 'monthly_rent', 'deposit_paid',
@@ -145,14 +145,23 @@ class PaymentSerializer(serializers.ModelSerializer):
         ]
 
     def get_tenant_name(self, obj):
-        if obj.tenant and obj.tenant.user:
-            full_name = obj.tenant.user.get_full_name()
-            return full_name if full_name.strip() else obj.tenant.user.username
-        return "Unknown Tenant"
+        # 2. BULLETPROOF CHECK: Use try/except to catch orphans
+        try:
+            if obj.tenant_id is not None and obj.tenant:
+                if obj.tenant.user:
+                    full_name = obj.tenant.user.get_full_name()
+                    return full_name if full_name.strip() else obj.tenant.user.username
+        except ObjectDoesNotExist:
+            pass # Fallback if tenant ID exists but row is missing
+        
+        return obj.archived_tenant_name or "Unknown Tenant"
     
     def get_house_number(self, obj):
-        if obj.tenant and obj.tenant.house:
-            return obj.tenant.house.house_number
+        try:
+            if obj.tenant_id is not None and obj.tenant and obj.tenant.house:
+                return obj.tenant.house.house_number
+        except ObjectDoesNotExist:
+            pass
         return "N/A"
 
     def validate_amount(self, value):
@@ -175,12 +184,10 @@ class BillSerializer(serializers.ModelSerializer):
     tenant_name = serializers.SerializerMethodField()
     house_number = serializers.SerializerMethodField()
     
-    # ADDED: Computed balance field
     balance = serializers.DecimalField(max_digits=10, decimal_places=2, source='balance_due', read_only=True)
 
     class Meta:
         model = Bill
-        # ADDED 'amount_paid' and 'balance'
         fields = [
             'id', 'tenant', 'tenant_name', 'house_number', 'bill_type', 'amount',
             'amount_paid', 'balance',
@@ -189,14 +196,22 @@ class BillSerializer(serializers.ModelSerializer):
         ]
 
     def get_tenant_name(self, obj):
-        if obj.tenant and obj.tenant.user:
-            full_name = obj.tenant.user.get_full_name()
-            return full_name if full_name.strip() else obj.tenant.user.username
-        return "Unknown Tenant"
+        # 3. BULLETPROOF CHECK FOR BILLS TOO
+        try:
+            if obj.tenant_id is not None and obj.tenant:
+                if obj.tenant.user:
+                    full_name = obj.tenant.user.get_full_name()
+                    return full_name if full_name.strip() else obj.tenant.user.username
+        except ObjectDoesNotExist:
+            pass
+        return obj.archived_tenant_name or "Unknown Tenant"
     
     def get_house_number(self, obj):
-        if obj.tenant and obj.tenant.house:
-            return obj.tenant.house.house_number
+        try:
+            if obj.tenant_id is not None and obj.tenant and obj.tenant.house:
+                return obj.tenant.house.house_number
+        except ObjectDoesNotExist:
+            pass
         return "N/A"
 
     def validate_amount(self, value):

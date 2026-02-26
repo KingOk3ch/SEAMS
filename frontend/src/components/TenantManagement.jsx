@@ -59,11 +59,17 @@ function TenantManagement() {
         fetch('http://localhost:8000/api/houses/', { headers })
       ]);
 
-      const tenantsData = await tenantsRes.json();
-      const housesData = await housesRes.json();
+      // --- FIX: Handle Pagination (Extract .results if present) ---
+      let tenantsData = await tenantsRes.json();
+      if (tenantsData.results) tenantsData = tenantsData.results;
 
-      setTenants(tenantsData);
-      setHouses(housesData);
+      let housesData = await housesRes.json();
+      if (housesData.results) housesData = housesData.results;
+
+      // Ensure we always set arrays to state
+      setTenants(Array.isArray(tenantsData) ? tenantsData : []);
+      setHouses(Array.isArray(housesData) ? housesData : []);
+      
       setLoading(false);
     } catch (err) {
       setError('Connection error');
@@ -314,16 +320,18 @@ function TenantManagement() {
     }
   };
 
-  // --- FILTERING LOGIC ---
-  const vacantHouses = houses.filter(h => h.status === 'vacant');
-  const activeTenants = tenants.filter(t => t.status === 'active');
-  const inactiveTenants = tenants.filter(t => t.status !== 'active');
+  // --- FILTERING LOGIC (Using Optional Chaining to prevent crashes) ---
+  const vacantHouses = Array.isArray(houses) ? houses.filter(h => h.status === 'vacant') : [];
+  
+  const activeTenants = Array.isArray(tenants) ? tenants.filter(t => t.status === 'active') : [];
+  const inactiveTenants = Array.isArray(tenants) ? tenants.filter(t => t.status !== 'active') : [];
+  
   const displayedTenants = tabValue === 0 ? tenants : tabValue === 1 ? activeTenants : inactiveTenants;
 
   // FIX: Include the current house in the Edit Dropdown even if it's occupied
-  const editHouseOptions = houses.filter(h => 
+  const editHouseOptions = Array.isArray(houses) ? houses.filter(h => 
     h.status === 'vacant' || (editMode && currentTenant && h.id === currentTenant.house)
-  );
+  ) : [];
 
   if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
 

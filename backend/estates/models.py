@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+from decimal import Decimal
 
 class House(models.Model):
     STATUS_CHOICES = [
@@ -159,7 +160,7 @@ class Bill(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     
     # --- ADDED: Track partial payments ---
-    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     month_for = models.DateField(help_text="Month this bill applies to")
     description = models.TextField(blank=True, null=True)
