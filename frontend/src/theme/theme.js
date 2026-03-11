@@ -1,62 +1,53 @@
 import { createTheme } from '@mui/material/styles';
 
-export const createCustomTheme = (mode) => createTheme({
+const theme = createTheme({
   palette: {
-    mode,
     primary: {
-      main: '#5C7E6D',
-      dark: '#4A6A5A',
-      light: '#7A9B8A',
-      contrastText: '#fff',
+      main: '#2563EB', // Sleek, modern vibrant blue
+      light: '#DBEAFE',
+      dark: '#1D4ED8',
     },
-    secondary: {
-      main: '#C46A4C',
-      dark: '#B05A3D',
-      light: '#D68B70',
-      contrastText: '#fff',
+    success: {
+      main: '#10B981', // Emerald green
+      light: '#D1FAE5',
     },
-    success: { main: '#10B981' },
-    warning: { main: '#F59E0B' },
-    error: { main: '#DC2626' },
-    info: { main: '#4F5F8D' },
+    warning: {
+      main: '#F59E0B', // Warm amber
+      light: '#FEF3C7',
+    },
+    info: {
+      main: '#8B5CF6', // Premium violet/purple
+      light: '#EDE9FE',
+    },
     background: {
-      default: mode === 'light' ? '#F8FAF9' : '#1A1D1E',
-      paper: mode === 'light' ? '#FFFFFF' : '#25292A',
+      default: '#F8FAFC', // Soft slate/gray for the app background
+      paper: '#FFFFFF', // Pure white for cards
+    },
+    text: {
+      primary: '#0F172A', // Slate 900 - softer on the eyes
+      secondary: '#64748B', // Slate 500
     },
   },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          borderRadius: 8,
-          fontWeight: 600,
-          transition: 'all 0.2s ease-in-out',
-          '&:hover': { transform: 'scale(1.02)' },
-          '&:active': { transform: 'scale(1)' },
-        },
-        contained: {
-          boxShadow: 'none',
-          '&:hover': { boxShadow: '0 4px 12px rgba(92, 126, 109, 0.2)' },
-        },
-        outlined: {
-          borderWidth: 2,
-          '&:hover': {
-            borderWidth: 2,
-            backgroundColor: mode === 'light' ? '#F0F5F2' : 'rgba(92, 126, 109, 0.1)',
-          },
-        },
-      },
+  typography: {
+    fontFamily: "'Poppins', sans-serif", // Keeping the premium font
+    h4: {
+      fontWeight: 600,
+      color: '#0F172A',
+      letterSpacing: '-0.02em',
     },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 12,
-          boxShadow: mode === 'light' 
-            ? '0 2px 8px rgba(0, 0, 0, 0.08)' 
-            : '0 2px 8px rgba(0, 0, 0, 0.4)',
-        },
-      },
+    h6: {
+      fontWeight: 600,
+      letterSpacing: '-0.01em',
+    },
+    body2: {
+      fontWeight: 400,
+    },
+    button: {
+      textTransform: 'none', // Keeps buttons from being ALL CAPS
+      fontWeight: 500,
+      fontSize: '0.95rem',
     },
   },
 });
+
+export default theme;

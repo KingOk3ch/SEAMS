@@ -1,36 +1,27 @@
 import React, { useState } from 'react';
-import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-  CircularProgress,
-  Link
+import { 
+  Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress
 } from '@mui/material';
+import { PersonOutline, LockOutlined, VisibilityOffOutlined } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
+
+import logoImage from '../assets/seamslogo.png';
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  
-  // State for professional errors
   const [globalError, setGlobalError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
-  
   const [loading, setLoading] = useState(false);
+  
   const navigate = useNavigate();
 
   const handleInputChange = (setter, field) => (e) => {
       setter(e.target.value);
-      // Clear specific field error when user types
       if (fieldErrors[field]) {
           setFieldErrors(prev => ({ ...prev, [field]: null }));
       }
-      // Clear global error when user interacts (so red outline goes away)
       if (globalError) setGlobalError('');
   };
 
@@ -66,7 +57,6 @@ function Login({ onLogin }) {
       } else {
         const { global, fields } = parseBackendErrors(data);
         
-        // Mask the error for security, but set globalError so inputs turn red
         if (response.status === 401 || (global && global.includes('active account'))) {
              setGlobalError('Invalid username or password.');
         } else {
@@ -93,83 +83,250 @@ function Login({ onLogin }) {
     }
   };
 
+  const customInputStyles = {
+    mb: 2.5,
+    '& .MuiOutlinedInput-root': {
+      borderRadius: '50px', 
+      color: 'white', 
+      backgroundColor: 'rgba(0,0,0,0.2)', 
+      '& fieldset': {
+        borderColor: 'rgba(255, 255, 255, 0.7)', 
+        borderWidth: '1.5px',
+      },
+      '&:hover fieldset': {
+        borderColor: 'white', 
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: 'white',
+        borderWidth: '2px',
+      },
+      '&.Mui-error fieldset': {
+        borderColor: '#f44336', 
+        borderWidth: '2px',
+      },
+    },
+    '& .MuiInputLabel-root': {
+      color: 'rgba(255, 255, 255, 0.6)', 
+      fontFamily: "'Poppins', sans-serif",
+    },
+    '& .MuiInputLabel-root.Mui-focused': {
+      color: 'white',
+    },
+    '& .MuiInputBase-input': {
+      '&:-webkit-autofill': {
+        transition: 'background-color 5000s ease-in-out 0s',
+        WebkitTextFillColor: 'white !important',
+      },
+    },
+    '& .MuiFormHelperText-root.Mui-error': {
+      color: '#ff8a80', 
+      marginLeft: '14px',
+      fontFamily: "'Poppins', sans-serif",
+    }
+  };
+
   return (
-    <Container maxWidth="sm">
+    <Box
+      sx={{
+        minHeight: '100vh',
+        width: '100vw',
+        backgroundImage: 'url(https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=2075&q=80)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed', 
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <Box
         sx={{
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)', 
+          zIndex: 1,
+        }}
+      />
+
+      <Box 
+        sx={{ 
+          position: 'relative', 
+          zIndex: 2, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          padding: { xs: '20px', md: '30px 60px' },
         }}
       >
-        <Paper elevation={3} sx={{ padding: 4, width: '100%' }}>
-          <Typography component="h1" variant="h4" align="center" gutterBottom>
-            SEAMS Login
+        <img 
+          src={logoImage} 
+          alt="SEAMS Logo" 
+          style={{ height: '90px', objectFit: 'contain', cursor: 'pointer' }} 
+          onClick={() => navigate('/')}
+        />
+
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 4 }}>
+          {['HOME', 'ABOUT', 'CONTACT', 'BLOG'].map((item) => (
+            <Typography key={item} sx={{ color: 'white', fontFamily: "'Poppins', sans-serif", fontSize: '0.9rem', cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+              {item}
+            </Typography>
+          ))}
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button 
+            onClick={() => navigate('/register')}
+            sx={{ display: { xs: 'none', sm: 'block' }, color: 'white', borderRadius: '50px', px: 3, fontFamily: "'Poppins', sans-serif" }}
+          >
+            SIGN UP
+          </Button>
+          <Button 
+            variant="contained" 
+            sx={{ bgcolor: 'white', color: 'black', borderRadius: '50px', px: 4, fontWeight: 'bold', fontFamily: "'Poppins', sans-serif", '&:hover': { bgcolor: 'grey.200' } }}
+          >
+            LOGIN
+          </Button>
+        </Box>
+      </Box>
+
+      <Box 
+        sx={{ 
+          position: 'relative', 
+          zIndex: 2, 
+          flexGrow: 1, 
+          display: 'flex', 
+          alignItems: 'center',
+          justifyContent: 'center', 
+          padding: '20px', 
+        }}
+      >
+        <Box 
+          sx={{ 
+            maxWidth: '450px', 
+            width: '100%',
+            bgcolor: 'rgba(0,0,0,0.5)', 
+            p: { xs: 4, md: 5 }, 
+            borderRadius: 4, 
+            border: '1px solid rgba(255,255,255,0.2)', 
+            textAlign: 'center', 
+            backdropFilter: 'blur(10px)' 
+          }}
+        >
+          
+          <Typography 
+            variant="h4" 
+            sx={{ color: 'white', fontWeight: 800, letterSpacing: '2px', fontFamily: "'Ranade', sans-serif", mb: 1 }}
+          >
+            WELCOME BACK
           </Typography>
-          <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 3 }}>
-            Staff Estates Administration & Management System
+          
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 4, fontFamily: "'Poppins', sans-serif" }}>
+            Please enter your login details.
           </Typography>
 
           {globalError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 3, borderRadius: '12px', textAlign: 'left' }}>
               {globalError}
             </Alert>
           )}
 
           <Box component="form" onSubmit={handleSubmit}>
             <TextField
-              margin="normal"
-              required
               fullWidth
-              label="Username"
+              name="username"
+              placeholder="Username or Email"
+              variant="outlined"
               autoFocus
+              disabled={loading}
               value={username}
               onChange={handleInputChange(setUsername, 'username')}
-              disabled={loading}
-              // VISUAL FEEDBACK: Turn red if specific error OR global error exists
               error={!!fieldErrors.username || !!globalError} 
               helperText={fieldErrors.username}
+              sx={customInputStyles}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PersonOutline sx={{ color: 'white' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
+
             <TextField
-              margin="normal"
-              required
               fullWidth
-              label="Password"
+              name="password"
               type="password"
+              placeholder="Password"
+              variant="outlined"
+              disabled={loading}
               value={password}
               onChange={handleInputChange(setPassword, 'password')}
-              disabled={loading}
-              // VISUAL FEEDBACK: Turn red if specific error OR global error exists
               error={!!fieldErrors.password || !!globalError}
               helperText={fieldErrors.password}
+              sx={customInputStyles}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockOutlined sx={{ color: 'white' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton edge="end" disableRipple>
+                      <VisibilityOffOutlined sx={{ color: 'white', opacity: 0.6 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+              <FormControlLabel
+                control={<Checkbox sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }} />}
+                label={<Typography sx={{ color: 'white', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif" }}>Remember me</Typography>}
+              />
+              <Link href="#" sx={{ color: '#ff4d4d', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif", textDecorationColor: '#ff4d4d' }}>
+                Forgot Password
+              </Link>
+            </Box>
+
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
               disabled={loading}
+              sx={{
+                bgcolor: 'white',
+                color: 'black',
+                borderRadius: '50px', 
+                py: 1.5,
+                fontSize: '1rem',
+                fontWeight: 700,
+                fontFamily: "'Poppins', sans-serif",
+                '&:hover': { bgcolor: 'grey.200' },
+                '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.7)' }
+              }}
             >
-              {loading ? <CircularProgress size={24} /> : 'Login'}
+              {loading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'LOGIN'}
             </Button>
 
-            <Box sx={{ textAlign: 'center', mt: 2 }}>
-              <Typography variant="body2" color="text.secondary">
+            <Box sx={{ textAlign: 'center', mt: 3 }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
                 New tenant?{' '}
                 <Link
-                  href="/register"
+                  onClick={() => navigate('/register')}
                   underline="hover"
-                  sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+                  sx={{ color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   Register here
                 </Link>
               </Typography>
             </Box>
+            
           </Box>
-        </Paper>
+        </Box>
       </Box>
-    </Container>
+    </Box>
   );
 }
 

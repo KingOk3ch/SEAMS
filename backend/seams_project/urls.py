@@ -6,7 +6,10 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from users.views import UserViewSet, tenant_register, verify_email, NotificationViewSet
-from estates.views import HouseViewSet, TenantViewSet, ContractViewSet, PaymentViewSet, BillViewSet
+from estates.views import (
+    HouseViewSet, TenantViewSet, ContractViewSet, 
+    PaymentViewSet, BillViewSet, DashboardStatsView # <--- NEW IMPORT
+)
 from estates.reports import ReportsViewSet
 from maintenance.views import MaintenanceRequestViewSet, MaintenanceImageViewSet
 
@@ -29,6 +32,9 @@ urlpatterns = [
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/register/tenant/', tenant_register, name='tenant-register'),
     path('api/auth/verify-email/', verify_email, name='verify-email'),
+    path("api-auth/", include("rest_framework.urls")),
+    # PRO ANALYTICS ENDPOINT ---
+    path('api/dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
 ]
 
 if settings.DEBUG:

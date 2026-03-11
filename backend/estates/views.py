@@ -1,8 +1,9 @@
 from rest_framework import viewsets, status
+from rest_framework.views import APIView # <--- NEW IMPORT
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum # <--- ADDED Sum
 from datetime import date, timedelta
 from django.db import IntegrityError, transaction
 from decimal import Decimal  # <--- IMPORTED FOR SAFE MATH
@@ -263,3 +264,61 @@ class BillViewSet(viewsets.ModelViewSet):
             tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
             
         serializer.save(archived_tenant_name=tenant_name)
+
+
+#  PRO DASHBOARD ANALYTICS ENGINE ---
+class DashboardStatsView(APIView):
+    """
+    Calculates all the heavy dashboard metrics directly on the database.
+    This prevents the UI from freezing when dealing with thousands of records.
+    """
+    permission_classes = [IsEstateAdminOrReadOnly]
+
+    def get(self, request):
+        # Local imports prevent circular dependency headaches
+        from django.contrib.auth import get_user_model
+        from maintenance.models import MaintenanceRequest
+        from maintenance.serializers import MaintenanceRequestSerializer
+        from users.serializers import UserSerializer
+
+        User = get_user_model()
+
+        # 1. House Stats
+        total_houses = House.objects.count()
+        occupied_houses = House.objects.filter(status='occupied').count()
+        vacant_houses_qs = House.objects.filter(status='vacant')
+        
+        # 2. Tenant Stats
+        total_tenants = Tenant.objects.count()
+        
+        # 3. User Approvals
+        pending_users_qs = User.objects.filter(approval_status='pending', role='tenant')
+        
+        # 4. Maintenance Stats
+        active_requests_qs = MaintenanceRequest.objects.filter(
+            status__in=['new', 'pending', 'assigned', 'in_progress']
+        ).order_by('-created_at')
+        
+        # 5. Financial Stats (Summing up the verified payments at DB level)
+        revenue_data = Payment.objects.filter(
+            Q(status='verified') | Q(is_verified=True)
+        ).aggregate(total=Sum('amount'))
+        
+        total_revenue = revenue_data['total'] or Decimal('0.00')
+
+        # Package it all nicely so the Frontend does zero math
+        return Response({
+            "stats": {
+                "totalHouses": total_houses,
+                "occupiedHouses": occupied_houses,
+                "vacantHouses": vacant_houses_qs.count(),
+                "totalTenants": total_tenants,
+                "pendingApprovals": pending_users_qs.count(),
+                "activeMaintenanceRequests": active_requests_qs.count(),
+                "totalRevenue": total_revenue
+            },
+            # We instantly serialize the lists the dashboard needs
+            "vacantHouses": HouseSerializer(vacant_houses_qs, many=True).data,
+            "pendingUsers": UserSerializer(pending_users_qs, many=True).data,
+            "maintenanceRequests": MaintenanceRequestSerializer(active_requests_qs[:5], many=True).data
+        })

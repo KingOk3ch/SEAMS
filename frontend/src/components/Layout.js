@@ -10,6 +10,8 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
+import logoImage from '../assets/seamslogo.png'; 
+
 const drawerWidth = 240;
 
 function Layout({ children, onLogout }) {
@@ -21,7 +23,7 @@ function Layout({ children, onLogout }) {
   
   // --- BADGE STATES ---
   const [paymentBadgeCount, setPaymentBadgeCount] = useState(0);
-  const [maintenanceBadgeCount, setMaintenanceBadgeCount] = useState(0); // NEW: Maintenance Count
+  const [maintenanceBadgeCount, setMaintenanceBadgeCount] = useState(0); 
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,10 +43,9 @@ function Layout({ children, onLogout }) {
   const fetchData = () => {
       fetchNotifications();
       fetchPaymentBadge();
-      fetchMaintenanceBadge(); // NEW
+      fetchMaintenanceBadge(); 
   };
 
-  // --- NEW: FETCH MAINTENANCE STATS ---
   const fetchMaintenanceBadge = async () => {
     try {
         const token = localStorage.getItem('access_token');
@@ -56,7 +57,7 @@ function Layout({ children, onLogout }) {
 
         if (response.ok) {
             let data = await response.json();
-            if (data.results) data = data.results; // Handle pagination
+            if (data.results) data = data.results; 
 
             let count = 0;
             const role = (user.role || '').toLowerCase();
@@ -206,11 +207,28 @@ function Layout({ children, onLogout }) {
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Toolbar>
-        <Typography variant="h6" noWrap component="div" sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-          SEAMS
-        </Typography>
+      
+      {/* Sidebar header with centered logo */}
+      <Toolbar sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        minHeight: '90px', 
+        py: 2
+      }}>
+        <img 
+          src={logoImage} 
+          alt="SEAMS Logo" 
+          style={{ 
+            height: '80px', 
+            width: 'auto',
+            objectFit: 'contain',
+            imageRendering: '-webkit-optimize-contrast',
+            transform: 'translateZ(0)'
+          }} 
+        />
       </Toolbar>
+      
       <Divider />
       <List sx={{ flexGrow: 1 }}>
         {getMenuItems().map((item) => {
@@ -267,8 +285,20 @@ function Layout({ children, onLogout }) {
           <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2, display: { sm: 'none' } }}>
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            Staff Estates Administration & Management System
+          
+          {/* Centralized Top Bar text */}
+          <Typography 
+            variant="h6" 
+            noWrap 
+            component="div" 
+            sx={{ 
+              flexGrow: 1, 
+              textAlign: 'center', 
+              fontWeight: 600, 
+              fontFamily: "'Poppins', sans-serif" 
+            }}
+          >
+            Smart Estates Administration and Maintenance System
           </Typography>
           
           {/* NOTIFICATION BELL */}

@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles'; // Removed createTheme from here
 import CssBaseline from '@mui/material/CssBaseline';
+
+// --- NEW IMPORT: Bringing in our premium master theme ---
+import theme from './theme/theme'; 
+
 import Login from './components/Login';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -16,18 +20,7 @@ import UserManagement from './components/UserManagement';
 import TenantRegistration from './components/TenantRegistration';
 import Profile from './components/Profile';
 import Reports from './components/Reports';
-import TenantPayments from './components/TenantPayments'; // <--- NEW IMPORT
-
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-});
+import TenantPayments from './components/TenantPayments';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);

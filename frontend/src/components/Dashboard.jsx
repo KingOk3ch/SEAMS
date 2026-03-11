@@ -75,47 +75,21 @@ function Dashboard() {
       const token = localStorage.getItem('access_token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const [housesRes, tenantsRes, usersRes, maintenanceRes, paymentsRes] = await Promise.all([
-        fetch('http://localhost:8000/api/houses/', { headers }),
-        fetch('http://localhost:8000/api/tenants/', { headers }),
-        fetch('http://localhost:8000/api/users/', { headers }),
-        fetch('http://localhost:8000/api/maintenance/', { headers }),
-        fetch('http://localhost:8000/api/payments/', { headers })
-      ]);
+      // --- OPTIMIZED ENGINE: One single request instead of five ---
+      const response = await fetch('http://localhost:8000/api/dashboard/stats/', { headers });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load stats');
+      }
 
-      const housesData = await housesRes.json();
-      const tenantsData = await tenantsRes.json();
-      const usersData = await usersRes.json();
-      let maintenanceData = await maintenanceRes.json();
-      let paymentsData = await paymentsRes.json();
+      const data = await response.json();
 
-      if (maintenanceData.results) maintenanceData = maintenanceData.results;
-      if (paymentsData.results) paymentsData = paymentsData.results;
-
-      const occupiedHouses = housesData.filter(h => h.status === 'occupied').length;
-      const vacantHouses = housesData.filter(h => h.status === 'vacant');
-      const pendingUsers = usersData.filter(u => u.approval_status === 'pending' && u.role === 'tenant');
-
-      const activeRequests = maintenanceData.filter(r => 
-        ['new', 'pending', 'assigned', 'in_progress'].includes(r.status)
-      );
-
-      const verifiedPayments = paymentsData.filter(p => p.is_verified || p.status === 'verified');
-      const totalRevenue = verifiedPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-
-      setStats({
-        totalHouses: housesData.length,
-        occupiedHouses: occupiedHouses,
-        vacantHouses: vacantHouses.length,
-        totalTenants: tenantsData.length,
-        pendingApprovals: pendingUsers.length,
-        activeMaintenanceRequests: activeRequests.length,
-        totalRevenue: totalRevenue
-      });
-
-      setPendingUsers(pendingUsers);
-      setVacantHouses(vacantHouses);
-      setMaintenanceRequests(activeRequests.slice(0, 5)); // Show top 5
+      // Instantly populate the UI using pre-calculated backend data
+      setStats(data.stats);
+      setPendingUsers(data.pendingUsers);
+      setVacantHouses(data.vacantHouses);
+      setMaintenanceRequests(data.maintenanceRequests);
+      
       setLoading(false);
     } catch (err) {
       setError('Failed to load dashboard data');
