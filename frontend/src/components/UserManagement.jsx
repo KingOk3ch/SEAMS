@@ -23,14 +23,15 @@ function UserManagement() {
   const [users, setUsers] = useState([]);
   const [vacantHouses, setVacantHouses] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  const [submitLoading, setSubmitLoading] = useState(false);
+  
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
 
-  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // Dialog States
   const [openDialog, setOpenDialog] = useState(false);
   const [openApproveDialog, setOpenApproveDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -38,16 +39,13 @@ function UserManagement() {
   const [currentUser, setCurrentUser] = useState(null);
   const [generatedPassword, setGeneratedPassword] = useState('');
 
-  // Validation State
   const [validationErrors, setValidationErrors] = useState({});
 
-  // User Form Data
   const [formData, setFormData] = useState({
     username: '', email: '', password: '', confirmPassword: '',
     first_name: '', last_name: '', role: 'tenant', phone: '', id_number: '', specialization: ''
   });
 
-  // Approval Form Data
   const [approvalData, setApprovalData] = useState({
     house_id: '',
     move_in_date: new Date().toISOString().split('T')[0],
@@ -159,6 +157,8 @@ function UserManagement() {
     if (Object.keys(validationErrors).length > 0) return;
     setFieldErrors({});
     setError('');
+    
+    setSubmitLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -207,10 +207,11 @@ function UserManagement() {
       }
     } catch (err) {
       setError('Network error occurred');
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
-  // --- Approval Handlers ---
   const handleOpenApproveDialog = (user) => {
     setCurrentUser(user);
     setFieldErrors({});
@@ -240,10 +241,13 @@ function UserManagement() {
     setError('');
     try {
       const token = localStorage.getItem('access_token');
+      
+      const payload = { approval_status: 'approved', ...approvalData };
+
       const response = await fetch(`http://localhost:8000/api/users/${currentUser.id}/approve/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approval_status: 'approved', ...approvalData })
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
@@ -277,7 +281,6 @@ function UserManagement() {
         setError('');
         fetchUsers(); 
       } else {
-        const data = await response.json();
         setError('Failed to reject user');
       }
     } catch (err) { setError('Network error occurred'); }
@@ -329,14 +332,8 @@ function UserManagement() {
     }
   };
 
-  // --- FILTERING LOGIC FOR TABS ---
-  // Staff: Admin, Tech, Manager (approved/rejected only, pending goes to pending tab)
   const staffUsers = users.filter(u => ['estate_admin', 'technician', 'manager'].includes(u.role) && u.approval_status !== 'pending');
-  
-  // Tenants: Tenant role (approved/rejected only)
   const tenantUsers = users.filter(u => u.role === 'tenant' && u.approval_status !== 'pending');
-  
-  // Pending: Anyone with pending status
   const pendingUsers = users.filter(u => u.approval_status === 'pending');
 
   let displayedUsers = [];
@@ -418,7 +415,6 @@ function UserManagement() {
         </Table>
       </TableContainer>
 
-      {/* MINIMALIST ADD/EDIT USER DIALOG */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>{editMode ? 'Edit User' : 'Add New User'}</DialogTitle>
         <DialogContent>
@@ -478,16 +474,15 @@ function UserManagement() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Close</Button>
+          <Button onClick={handleCloseDialog} disabled={submitLoading}>Close</Button>
           {!generatedPassword && (
-              <Button onClick={handleSubmit} variant="contained" disabled={Object.keys(validationErrors).length > 0}>
-                {editMode ? 'Update' : 'Create'}
+              <Button onClick={handleSubmit} variant="contained" disabled={Object.keys(validationErrors).length > 0 || submitLoading}>
+                {submitLoading ? <CircularProgress size={24} color="inherit" /> : (editMode ? 'Update' : 'Create')}
               </Button>
           )}
         </DialogActions>
       </Dialog>
 
-      {/* Approval Dialog (Already minimalist enough, just cleaned up) */}
       <Dialog open={openApproveDialog} onClose={handleCloseApproveDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Approve Tenant & Assign House</DialogTitle>
         <DialogContent>
@@ -509,7 +504,14 @@ function UserManagement() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseApproveDialog}>Cancel</Button>
-          <Button onClick={handleApprove} variant="contained" color="success" disabled={!approvalData.house_id}>Approve & Assign</Button>
+          <Button 
+            onClick={handleApprove} 
+            variant="contained" 
+            color="success" 
+            disabled={!approvalData.house_id}
+          >
+            Approve & Assign
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

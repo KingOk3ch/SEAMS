@@ -18,11 +18,13 @@ function TenantManagement() {
   const [tenants, setTenants] = useState([]);
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  const [submitLoading, setSubmitLoading] = useState(false);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
 
-  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [openDialog, setOpenDialog] = useState(false);
@@ -31,7 +33,7 @@ function TenantManagement() {
   const [currentTenant, setCurrentTenant] = useState(null);
 
   const [formData, setFormData] = useState({
-    username: '', email: '', password: '',
+    username: '', email: '',
     first_name: '', last_name: '', phone: '', id_number: '',
     house: '',
     move_in_date: new Date().toISOString().split('T')[0],
@@ -59,14 +61,12 @@ function TenantManagement() {
         fetch('http://localhost:8000/api/houses/', { headers })
       ]);
 
-      // --- FIX: Handle Pagination (Extract .results if present) ---
       let tenantsData = await tenantsRes.json();
       if (tenantsData.results) tenantsData = tenantsData.results;
 
       let housesData = await housesRes.json();
       if (housesData.results) housesData = housesData.results;
 
-      // Ensure we always set arrays to state
       setTenants(Array.isArray(tenantsData) ? tenantsData : []);
       setHouses(Array.isArray(housesData) ? housesData : []);
       
@@ -93,7 +93,6 @@ function TenantManagement() {
       setFormData({
         username: tenant.user.username,
         email: tenant.user.email || '',
-        password: '',
         first_name: tenant.user.first_name,
         last_name: tenant.user.last_name,
         phone: tenant.user.phone || '',
@@ -108,7 +107,7 @@ function TenantManagement() {
       setEditMode(false);
       setCurrentTenant(null);
       setFormData({
-        username: '', email: '', password: '',
+        username: '', email: '',
         first_name: '', last_name: '', phone: '', id_number: '',
         house: '',
         move_in_date: new Date().toISOString().split('T')[0],
@@ -161,16 +160,16 @@ function TenantManagement() {
   const handleSubmit = async () => {
     setFieldErrors({});
     setError('');
+    setSubmitLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
 
       if (editMode) {
-        // Update existing tenant
         const updateData = {
           phone: formData.phone,
           id_number: formData.id_number,
-          house: formData.house,
+          house: formData.house || null,
           move_in_date: formData.move_in_date,
           contract_start: formData.contract_start,
           contract_end: formData.contract_end,
@@ -190,7 +189,6 @@ function TenantManagement() {
           fetchData();
           handleCloseDialog();
           setSuccess('Tenant updated successfully');
-          setError('');
         } else {
           const data = await response.json();
           const { global, fields } = parseBackendErrors(data);
@@ -198,11 +196,9 @@ function TenantManagement() {
           setFieldErrors(fields);
         }
       } else {
-        // Create new tenant logic
         const userData = {
           username: formData.username,
           email: formData.email,
-          password: formData.password,
           first_name: formData.first_name,
           last_name: formData.last_name,
           role: 'tenant',
@@ -224,19 +220,21 @@ function TenantManagement() {
           const { global, fields } = parseBackendErrors(data);
           setError(global || 'Failed to create user account.');
           setFieldErrors(fields);
+          setSubmitLoading(false);
           return;
         }
 
         const userResult = await userResponse.json();
         const newUserId = userResult.user.id;
 
+        // Creates a blank tenant record with NO house assigned yet
         const tenantData = {
-          user: newUserId,
-          house: formData.house,
-          move_in_date: formData.move_in_date,
+          user_id: newUserId, 
+          house: null,
+          move_in_date: formData.move_in_date, // Pass default date so DRF doesn't complain
           contract_start: formData.contract_start,
           contract_end: formData.contract_end,
-          status: formData.status
+          status: 'inactive' // Set to inactive until approved
         };
 
         const tenantResponse = await fetch('http://localhost:8000/api/tenants/', {
@@ -251,18 +249,19 @@ function TenantManagement() {
         if (tenantResponse.ok) {
           fetchData();
           handleCloseDialog();
-          setSuccess(`Tenant created successfully! Temporary password: ${userResult.temporary_password || 'N/A'}`);
-          setError('');
+          setSuccess(`Tenant created successfully! Go to User Management to Approve & Assign House.`);
         } else {
           const data = await tenantResponse.json();
           const { global, fields } = parseBackendErrors(data);
-          setError(global || 'User created but tenant profile failed.');
+          setError(global || 'User created but tenant profile failed. Check the backend logs.');
           setFieldErrors(fields);
         }
       }
     } catch (err) {
       setError('Network error occurred');
       console.error('Error:', err);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -320,7 +319,6 @@ function TenantManagement() {
     }
   };
 
-  // --- FILTERING LOGIC (Using Optional Chaining to prevent crashes) ---
   const vacantHouses = Array.isArray(houses) ? houses.filter(h => h.status === 'vacant') : [];
   
   const activeTenants = Array.isArray(tenants) ? tenants.filter(t => t.status === 'active') : [];
@@ -328,7 +326,6 @@ function TenantManagement() {
   
   const displayedTenants = tabValue === 0 ? tenants : tabValue === 1 ? activeTenants : inactiveTenants;
 
-  // FIX: Include the current house in the Edit Dropdown even if it's occupied
   const editHouseOptions = Array.isArray(houses) ? houses.filter(h => 
     h.status === 'vacant' || (editMode && currentTenant && h.id === currentTenant.house)
   ) : [];
@@ -398,17 +395,15 @@ function TenantManagement() {
         </Table>
       </TableContainer>
 
-      {/* --- MINIMALIST TENANT FORM (VERTICAL RECTANGLE) --- */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>{editMode ? 'Edit Tenant' : 'Add New Tenant'}</DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
             
             <Alert severity="info" icon={<PersonAddIcon />}>
-                {editMode ? 'Update tenant details below' : 'Register a new tenant'}
+                {editMode ? 'Update tenant details below' : 'Register a new tenant. Password will be auto-generated and emailed.'}
             </Alert>
 
-            {/* Personal Details */}
             <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mt: 1, letterSpacing: 1 }}>ACCOUNT & CONTACT</Typography>
             <Grid container spacing={2}>
                 <Grid item xs={6}>
@@ -424,14 +419,9 @@ function TenantManagement() {
             )}
             
             <TextField label="Email Address" name="email" type="email" value={formData.email} onChange={handleInputChange} fullWidth required error={!!fieldErrors.email} helperText={fieldErrors.email} />
-            
-            {!editMode && (
-                <TextField label="Password" name="password" type="password" value={formData.password} onChange={handleInputChange} fullWidth required error={!!fieldErrors.password} helperText={fieldErrors.password} />
-            )}
 
             <TextField label="Phone Number" name="phone" value={formData.phone} onChange={handleInputChange} fullWidth error={!!fieldErrors.phone} helperText={fieldErrors.phone} />
             
-            {/* LOCKED ID FIELD */}
             <TextField 
                 label="ID Number" 
                 name="id_number" 
@@ -439,64 +429,67 @@ function TenantManagement() {
                 onChange={handleInputChange} 
                 fullWidth 
                 required 
-                disabled={editMode} // <--- LOCKED IN EDIT MODE
+                disabled={editMode} 
                 error={!!fieldErrors.id_number} 
                 helperText={fieldErrors.id_number} 
             />
 
-            <Divider sx={{ my: 1 }} />
-
-            {/* Housing Details */}
-            <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ letterSpacing: 1 }}>LEASE DETAILS</Typography>
-            
-            {/* FIX: Using editHouseOptions here ensures the current house is selectable */}
-            <TextField 
-                select 
-                label="Assigned House" 
-                name="house" 
-                value={formData.house} 
-                onChange={handleInputChange} 
-                fullWidth 
-                error={!!fieldErrors.house} 
-                helperText={fieldErrors.house || "Select a house"}
-            >
-                <MenuItem value="">None</MenuItem>
-                {editHouseOptions.map((house) => (
-                    <MenuItem key={house.id} value={house.id}>
-                        {house.house_number} - {house.house_type} (KES {house.rent_amount})
-                    </MenuItem>
-                ))}
-            </TextField>
-
-            <Grid container spacing={2}>
-                <Grid item xs={6}>
-                    <TextField label="Move-in Date" name="move_in_date" type="date" value={formData.move_in_date} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.move_in_date} helperText={fieldErrors.move_in_date} />
-                </Grid>
-                <Grid item xs={6}>
-                    <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} fullWidth error={!!fieldErrors.status} helperText={fieldErrors.status}>
-                        <MenuItem value="active">Active</MenuItem><MenuItem value="inactive">Inactive</MenuItem><MenuItem value="suspended">Suspended</MenuItem>
+            {/* ONLY RENDER THIS SECTION IF EDIT MODE IS ACTIVE */}
+            {editMode && (
+                <>
+                    <Divider sx={{ my: 1 }} />
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ letterSpacing: 1 }}>LEASE DETAILS</Typography>
+                    
+                    <TextField 
+                        select 
+                        label="Assigned House" 
+                        name="house" 
+                        value={formData.house} 
+                        onChange={handleInputChange} 
+                        fullWidth 
+                        error={!!fieldErrors.house} 
+                        helperText={fieldErrors.house || "Select a house"}
+                    >
+                        <MenuItem value="">None</MenuItem>
+                        {editHouseOptions.map((house) => (
+                            <MenuItem key={house.id} value={house.id}>
+                                {house.house_number} - {house.house_type} (KES {house.rent_amount})
+                            </MenuItem>
+                        ))}
                     </TextField>
-                </Grid>
-            </Grid>
 
-            <Grid container spacing={2}>
-                <Grid item xs={6}>
-                    <TextField label="Contract Start" name="contract_start" type="date" value={formData.contract_start} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.contract_start} helperText={fieldErrors.contract_start} />
-                </Grid>
-                <Grid item xs={6}>
-                    <TextField label="Contract End" name="contract_end" type="date" value={formData.contract_end} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.contract_end} helperText={fieldErrors.contract_end} />
-                </Grid>
-            </Grid>
+                    <Grid container spacing={2}>
+                        <Grid item xs={6}>
+                            <TextField label="Move-in Date" name="move_in_date" type="date" value={formData.move_in_date} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.move_in_date} helperText={fieldErrors.move_in_date} />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField select label="Status" name="status" value={formData.status} onChange={handleInputChange} fullWidth error={!!fieldErrors.status} helperText={fieldErrors.status}>
+                                <MenuItem value="active">Active</MenuItem><MenuItem value="inactive">Inactive</MenuItem><MenuItem value="suspended">Suspended</MenuItem>
+                            </TextField>
+                        </Grid>
+                    </Grid>
+
+                    <Grid container spacing={2}>
+                        <Grid item xs={6}>
+                            <TextField label="Contract Start" name="contract_start" type="date" value={formData.contract_start} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.contract_start} helperText={fieldErrors.contract_start} />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField label="Contract End" name="contract_end" type="date" value={formData.contract_end} onChange={handleInputChange} fullWidth InputLabelProps={{ shrink: true }} error={!!fieldErrors.contract_end} helperText={fieldErrors.contract_end} />
+                        </Grid>
+                    </Grid>
+                </>
+            )}
 
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">{editMode ? 'Update' : 'Create'}</Button>
+          <Button onClick={handleCloseDialog} disabled={submitLoading}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={submitLoading}>
+            {submitLoading ? <CircularProgress size={24} color="inherit" /> : (editMode ? 'Update' : 'Create')}
+          </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Assign House Dialog */}
       <Dialog open={openAssignDialog} onClose={handleCloseAssignDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Assign House</DialogTitle>
         <DialogContent>

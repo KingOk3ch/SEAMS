@@ -15,7 +15,7 @@ from .serializers import (
     NotificationSerializer
 )
 from .models import Notification
-import secrets # CHANGED FROM RANDOM
+import secrets 
 import string
 
 User = get_user_model()
@@ -30,7 +30,6 @@ class UserViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
     
     def generate_random_password(self, length=12):
-        # SECURITY: Use secrets for cryptographically strong random numbers
         characters = string.ascii_letters + string.digits + '@#$%&*'
         while True:
             password = ''.join(secrets.choice(characters) for i in range(length))
@@ -52,6 +51,26 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserRegistrationSerializer(data=data)
         if serializer.is_valid():
             user = serializer.save()
+            
+            if user.role == 'tenant' and user.email_verification_token:
+                try:
+                    email_msg = (
+                        f"Hello {user.first_name},\n\n"
+                        f"An administrator has registered you for SEAMS.\n\n"
+                        f"Your Temporary Password is: {generated_password or 'Provided by Admin'}\n"
+                        f"Your Email Verification Code is: {user.email_verification_token}\n\n"
+                        f"Please enter this code on the registration page to verify your email.\n\n"
+                        f"IMPORTANT: For your security, please navigate to your profile settings and change this temporary password immediately upon your first login."
+                    )
+                    send_mail(
+                        subject='Verify Your Email & Temporary Password - SEAMS',
+                        message=email_msg,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[user.email],
+                        fail_silently=False,
+                    )
+                except Exception as e:
+                    print(f"Failed to send email to tenant: {e}")
             
             response_data = {
                 'user': UserSerializer(user).data,
@@ -88,7 +107,6 @@ class UserViewSet(viewsets.ModelViewSet):
     def update_profile(self, request):
         user = request.user
         
-        # Security: first_name, last_name, and id_number are NOT in this list.
         allowed_fields = [
             'username', 'email', 'phone', 'specialization', 'profile_picture'
         ]
@@ -161,12 +179,12 @@ class UserViewSet(viewsets.ModelViewSet):
         if user.approval_status != 'pending':
             return Response({'error': 'User is not pending approval'}, status=400)
         
-        house_id = request.data.get('house_id')
-        if not house_id:
-            return Response({'error': 'You must assign a house to approve a tenant.'}, status=400)
-        
         House = apps.get_model('estates', 'House')
         Tenant = apps.get_model('estates', 'Tenant')
+        
+        house_id = request.data.get('house_id')
+        if not house_id:
+            return Response({'error': 'You must assign a house to approve this tenant.'}, status=400)
         
         try:
             house = House.objects.get(id=house_id)
@@ -219,9 +237,9 @@ class UserViewSet(viewsets.ModelViewSet):
 
             try:
                 if user.is_active:
-                    email_msg = f'Hello {user.first_name},\n\nYour account is approved! You have been assigned House {house.house_number}.\nYou can now log in.'
+                    email_msg = f'Hello {user.first_name},\n\nYour account is approved! You are assigned to House {house.house_number}.\nYou can now log in.'
                 else:
-                    email_msg = f'Hello {user.first_name},\n\nYour account is approved and you have been assigned House {house.house_number}!\n\nPlease verify your email to log in.'
+                    email_msg = f'Hello {user.first_name},\n\nYour account is approved and you are assigned to House {house.house_number}!\n\nPlease verify your email to log in.'
 
                 send_mail(
                     subject='SEAMS Account Approved & House Assigned',
@@ -251,37 +269,27 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         
         rejection_reason = request.data.get('rejection_reason', 'No reason provided')
+        first_name = user.first_name
+        email = user.email
         
-        serializer = UserApprovalSerializer(
-            user, 
-            data={
-                'approval_status': 'rejected', 
-                'rejection_reason': rejection_reason
-            }, 
-            context={'request': request}, 
-            partial=True
-        )
+        # 1. Send the rejection email before deleting the user
+        try:
+            send_mail(
+                subject='SEAMS Account Registration Update',
+                message=f'Hello {first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print(f"Failed to send rejection email: {e}")
         
-        if serializer.is_valid():
-            serializer.save()
-            
-            try:
-                send_mail(
-                    subject='SEAMS Account Registration Update',
-                    message=f'Hello {user.first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}',
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-            except Exception as e:
-                print(f"Failed to send rejection email: {e}")
-            
-            return Response({
-                'message': 'User rejected',
-            }, status=status.HTTP_200_OK)
+        # 2. Hard delete the user to completely wipe their record
+        user.delete()
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+        return Response({
+            'message': 'User rejected and permanently removed from the system.',
+        }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -309,7 +317,6 @@ def tenant_register(request):
         }, status=status.HTTP_201_CREATED)
     
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -339,7 +346,7 @@ def verify_email(request):
         return Response({
             'error': 'Invalid verification code or email'
         }, status=status.HTTP_400_BAD_REQUEST)
-    #Notification Viewset
+
 class NotificationViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]

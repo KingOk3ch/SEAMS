@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress
+  Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
 import { PersonOutline, LockOutlined, VisibilityOffOutlined } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,12 @@ function Login({ onLogin }) {
   const [globalError, setGlobalError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
+
+  // --- Verification Modal State ---
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyData, setVerifyData] = useState({ email: '', code: '' });
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState({ type: '', text: '' });
   
   const navigate = useNavigate();
 
@@ -23,6 +29,13 @@ function Login({ onLogin }) {
           setFieldErrors(prev => ({ ...prev, [field]: null }));
       }
       if (globalError) setGlobalError('');
+  };
+
+  const handleVerifyChange = (e) => {
+    setVerifyData({
+      ...verifyData,
+      [e.target.name]: e.target.value,
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -70,6 +83,50 @@ function Login({ onLogin }) {
       setGlobalError('Connection error. Make sure backend is running on port 8000');
       console.error('Login error:', err);
       setLoading(false);
+    }
+  };
+
+  const handleVerifySubmit = async () => {
+    if (!verifyData.email || !verifyData.code) {
+      setVerifyMsg({ type: 'error', text: 'Please fill in both fields.' });
+      return;
+    }
+
+    setVerifyLoading(true);
+    setVerifyMsg({ type: '', text: '' });
+
+    try {
+      // Corrected URL to match your urls.py exactly
+      const response = await fetch('http://localhost:8000/api/auth/verify-email/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(verifyData)
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setVerifyMsg({ type: 'success', text: 'Email verified successfully! You can now close this and log in.' });
+        setTimeout(() => {
+          setVerifyOpen(false);
+          setVerifyMsg({ type: '', text: '' });
+          setVerifyData({ email: '', code: '' });
+        }, 3000);
+      } else {
+        setVerifyMsg({ type: 'error', text: data.error || 'Verification failed. Please check your code.' });
+      }
+    } catch (err) {
+      setVerifyMsg({ type: 'error', text: 'Network error. Please make sure the server is running.' });
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const closeVerifyDialog = () => {
+    if (!verifyLoading) {
+      setVerifyOpen(false);
+      setVerifyMsg({ type: '', text: '' });
+      setVerifyData({ email: '', code: '' });
     }
   };
 
@@ -304,13 +361,31 @@ function Login({ onLogin }) {
                 fontWeight: 700,
                 fontFamily: "'Poppins', sans-serif",
                 '&:hover': { bgcolor: 'grey.200' },
-                '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.7)' }
+                '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.7)' },
+                mb: 2
               }}
             >
               {loading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'LOGIN'}
             </Button>
 
-            <Box sx={{ textAlign: 'center', mt: 3 }}>
+            {/* --- VERIFICATION LINK --- */}
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Link 
+                component="button" 
+                type="button"
+                variant="body2" 
+                underline="hover"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setVerifyOpen(true);
+                }}
+                sx={{ color: '#a5d6a7', fontFamily: "'Poppins', sans-serif" }}
+              >
+                Have a verification code? Verify your account
+              </Link>
+            </Box>
+
+            <Box sx={{ textAlign: 'center' }}>
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
                 New tenant?{' '}
                 <Link
@@ -326,6 +401,57 @@ function Login({ onLogin }) {
           </Box>
         </Box>
       </Box>
+
+      {/* --- VERIFICATION MODAL --- */}
+      <Dialog open={verifyOpen} onClose={closeVerifyDialog} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Verify Your Account</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "'Poppins', sans-serif" }}>
+              Enter the email address associated with your account and the 6-digit verification code you received.
+            </Typography>
+
+            {verifyMsg.text && (
+              <Alert severity={verifyMsg.type} sx={{ mb: 1 }}>
+                {verifyMsg.text}
+              </Alert>
+            )}
+
+            <TextField
+              label="Email Address"
+              name="email"
+              type="email"
+              value={verifyData.email}
+              onChange={handleVerifyChange}
+              fullWidth
+              required
+            />
+            <TextField
+              label="6-Digit Verification Code"
+              name="code"
+              value={verifyData.code}
+              onChange={handleVerifyChange}
+              fullWidth
+              required
+              inputProps={{ maxLength: 6 }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={closeVerifyDialog} disabled={verifyLoading} sx={{ fontFamily: "'Poppins', sans-serif" }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleVerifySubmit} 
+            variant="contained" 
+            color="primary"
+            disabled={verifyLoading || !verifyData.email || !verifyData.code}
+            sx={{ fontFamily: "'Poppins', sans-serif" }}
+          >
+            {verifyLoading ? <CircularProgress size={24} color="inherit" /> : 'Verify'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

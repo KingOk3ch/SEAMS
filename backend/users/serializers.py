@@ -8,7 +8,6 @@ import re
 
 User = get_user_model()
 
-# --- Reusable Validators ---
 def validate_kenyan_phone(value):
     if not value: return value
     # Matches: 07xx, 01xx, or +254xx
@@ -58,10 +57,19 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if 'phone' in validated_data and validated_data['phone'] == '':
             validated_data['phone'] = ''
             
-        validated_data['profile_completed'] = False
-        validated_data['approval_status'] = 'approved'
-        validated_data['email_verified'] = True
-        validated_data['is_active'] = True
+        role = validated_data.get('role', 'tenant')
+        
+        if role == 'tenant':
+            validated_data['profile_completed'] = False
+            validated_data['approval_status'] = 'pending'
+            validated_data['email_verified'] = False
+            validated_data['is_active'] = False
+            validated_data['email_verification_token'] = ''.join(secrets.choice(string.digits) for _ in range(6))
+        else:
+            validated_data['profile_completed'] = False
+            validated_data['approval_status'] = 'approved'
+            validated_data['email_verified'] = True
+            validated_data['is_active'] = True
         
         user = User.objects.create_user(**validated_data)
         return user

@@ -15,8 +15,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing token on mount
-    const token = localStorage.getItem('token');
+    // Check for existing token and user data on mount
+    const token = localStorage.getItem('access_token');
     const userData = localStorage.getItem('user');
     
     if (token && userData) {
@@ -25,14 +25,19 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const login = (userData, token) => {
-    localStorage.setItem('token', token);
+  const login = (userData, accessToken, refreshToken) => {
+    // Save standard JWT tokens
+    localStorage.setItem('access_token', accessToken);
+    if (refreshToken) {
+        localStorage.setItem('refresh_token', refreshToken);
+    }
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
     setUser(null);
   };
