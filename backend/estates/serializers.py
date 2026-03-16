@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from users.serializers import UserSerializer
 from datetime import date
 from django.db.models import Q
-from django.core.exceptions import ObjectDoesNotExist # <--- 1. ADDED THIS IMPORT
+from django.core.exceptions import ObjectDoesNotExist 
 import re
 import os
 
@@ -77,10 +77,11 @@ class ContractSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Contract
+        # --- FIXED: Added 'is_accepted' and 'date_accepted' to the serializer ---
         fields = [
             'id', 'tenant', 'tenant_name', 'house', 'house_details', 'house_number',
             'start_date', 'end_date', 'monthly_rent', 'deposit_paid',
-            'terms', 'contract_document', 'created_at'
+            'terms', 'is_accepted', 'date_accepted', 'contract_document', 'created_at'
         ]
 
     def get_tenant_name(self, obj):
@@ -145,14 +146,13 @@ class PaymentSerializer(serializers.ModelSerializer):
         ]
 
     def get_tenant_name(self, obj):
-        # 2. BULLETPROOF CHECK: Use try/except to catch orphans
         try:
             if obj.tenant_id is not None and obj.tenant:
                 if obj.tenant.user:
                     full_name = obj.tenant.user.get_full_name()
                     return full_name if full_name.strip() else obj.tenant.user.username
         except ObjectDoesNotExist:
-            pass # Fallback if tenant ID exists but row is missing
+            pass 
         
         return obj.archived_tenant_name or "Unknown Tenant"
     
@@ -196,7 +196,6 @@ class BillSerializer(serializers.ModelSerializer):
         ]
 
     def get_tenant_name(self, obj):
-        # 3. BULLETPROOF CHECK FOR BILLS TOO
         try:
             if obj.tenant_id is not None and obj.tenant:
                 if obj.tenant.user:

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
-import { PersonOutline, LockOutlined, VisibilityOffOutlined } from '@mui/icons-material';
+import { PersonOutline, LockOutlined, VisibilityOffOutlined, VisibilityOutlined } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 
@@ -14,12 +14,21 @@ function Login({ onLogin }) {
   const [globalError, setGlobalError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  
+  // NEW: State for password visibility
+  const [showPassword, setShowPassword] = useState(false); 
 
   // --- Verification Modal State ---
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [verifyData, setVerifyData] = useState({ email: '', code: '' });
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState({ type: '', text: '' });
+
+  // --- Forgot Password Modal State ---
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState({ type: '', text: '' });
   
   const navigate = useNavigate();
 
@@ -96,7 +105,6 @@ function Login({ onLogin }) {
     setVerifyMsg({ type: '', text: '' });
 
     try {
-      // Corrected URL to match your urls.py exactly
       const response = await fetch('http://localhost:8000/api/auth/verify-email/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,11 +130,52 @@ function Login({ onLogin }) {
     }
   };
 
+  const handleForgotSubmit = async () => {
+    if (!forgotEmail) {
+      setForgotMsg({ type: 'error', text: 'Please enter your email address.' });
+      return;
+    }
+    setForgotLoading(true);
+    setForgotMsg({ type: '', text: '' });
+
+    try {
+      const response = await fetch('http://localhost:8000/api/users/forgot_password/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const data = await response.json();
+      
+      if (response.ok) {
+        setForgotMsg({ type: 'success', text: data.message || 'Password reset instructions sent.' });
+        setTimeout(() => {
+          setForgotOpen(false);
+          setForgotMsg({ type: '', text: '' });
+          setForgotEmail('');
+        }, 4000);
+      } else {
+        setForgotMsg({ type: 'error', text: data.error || 'Failed to process request.' });
+      }
+    } catch (err) {
+      setForgotMsg({ type: 'error', text: 'Network error. Please make sure the server is running.' });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   const closeVerifyDialog = () => {
     if (!verifyLoading) {
       setVerifyOpen(false);
       setVerifyMsg({ type: '', text: '' });
       setVerifyData({ email: '', code: '' });
+    }
+  };
+
+  const closeForgotDialog = () => {
+    if (!forgotLoading) {
+      setForgotOpen(false);
+      setForgotMsg({ type: '', text: '' });
+      setForgotEmail('');
     }
   };
 
@@ -170,6 +219,8 @@ function Login({ onLogin }) {
       color: 'white',
     },
     '& .MuiInputBase-input': {
+      color: 'white',        // Forces the typed text to be white
+      caretColor: 'white',   // Forces the typing cursor to be white
       '&:-webkit-autofill': {
         transition: 'background-color 5000s ease-in-out 0s',
         WebkitTextFillColor: 'white !important',
@@ -312,7 +363,7 @@ function Login({ onLogin }) {
             <TextField
               fullWidth
               name="password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="Password"
               variant="outlined"
               disabled={loading}
@@ -329,8 +380,17 @@ function Login({ onLogin }) {
                 ),
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton edge="end" disableRipple>
-                      <VisibilityOffOutlined sx={{ color: 'white', opacity: 0.6 }} />
+                    <IconButton 
+                      edge="end" 
+                      disableRipple 
+                      onClick={() => setShowPassword(!showPassword)}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      {showPassword ? (
+                        <VisibilityOutlined sx={{ color: 'white', opacity: 0.9 }} />
+                      ) : (
+                        <VisibilityOffOutlined sx={{ color: 'white', opacity: 0.6 }} />
+                      )}
                     </IconButton>
                   </InputAdornment>
                 ),
@@ -342,7 +402,12 @@ function Login({ onLogin }) {
                 control={<Checkbox sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }} />}
                 label={<Typography sx={{ color: 'white', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif" }}>Remember me</Typography>}
               />
-              <Link href="#" sx={{ color: '#ff4d4d', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif", textDecorationColor: '#ff4d4d' }}>
+              <Link 
+                component="button"
+                type="button"
+                onClick={(e) => { e.preventDefault(); setForgotOpen(true); }}
+                sx={{ color: '#ff4d4d', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif", textDecorationColor: '#ff4d4d', cursor: 'pointer' }}
+              >
                 Forgot Password
               </Link>
             </Box>
@@ -449,6 +514,49 @@ function Login({ onLogin }) {
             sx={{ fontFamily: "'Poppins', sans-serif" }}
           >
             {verifyLoading ? <CircularProgress size={24} color="inherit" /> : 'Verify'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- FORGOT PASSWORD MODAL --- */}
+      <Dialog open={forgotOpen} onClose={closeForgotDialog} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Reset Password</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "'Poppins', sans-serif" }}>
+              Enter your registered email address to receive a temporary password.
+            </Typography>
+
+            {forgotMsg.text && (
+              <Alert severity={forgotMsg.type} sx={{ mb: 1 }}>
+                {forgotMsg.text}
+              </Alert>
+            )}
+
+            <TextField
+              label="Email Address"
+              name="forgotEmail"
+              type="email"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              fullWidth
+              required
+              autoFocus
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={closeForgotDialog} disabled={forgotLoading} sx={{ fontFamily: "'Poppins', sans-serif" }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleForgotSubmit} 
+            variant="contained" 
+            color="primary"
+            disabled={forgotLoading || !forgotEmail}
+            sx={{ fontFamily: "'Poppins', sans-serif" }}
+          >
+            {forgotLoading ? <CircularProgress size={24} color="inherit" /> : 'Send Reset Link'}
           </Button>
         </DialogActions>
       </Dialog>

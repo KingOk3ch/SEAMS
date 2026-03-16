@@ -76,6 +76,10 @@ class Contract(models.Model):
     # --- ADDED: To support custom lease terms ---
     terms = models.TextField(blank=True, null=True)
     
+    # --- NEW: Digital Acceptance Tracking ---
+    is_accepted = models.BooleanField(default=False)
+    date_accepted = models.DateTimeField(null=True, blank=True)
+    
     contract_document = models.FileField(upload_to='contracts/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     

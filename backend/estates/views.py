@@ -7,6 +7,7 @@ from django.db.models import Count, Q, Sum # <--- ADDED Sum
 from datetime import date, timedelta
 from django.db import IntegrityError, transaction
 from decimal import Decimal  # <--- IMPORTED FOR SAFE MATH
+from django.utils import timezone # <--- NEW: For stamping the signature time
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 from users.models import Notification
@@ -79,8 +80,36 @@ class TenantViewSet(viewsets.ModelViewSet):
 class ContractViewSet(viewsets.ModelViewSet):
     queryset = Contract.objects.all()
     serializer_class = ContractSerializer
-    # LOCK: Contracts should ideally be managed by Admins only
-    permission_classes = [IsEstateAdminOrReadOnly]
+    # --- UPDATED: Allow tenants to view and accept their contracts ---
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            return Contract.objects.filter(tenant__user=user)
+        return Contract.objects.all()
+
+    # --- NEW: Digital signature endpoint ---
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        contract = self.get_object()
+        
+        # Security: ensure only the assigned tenant can accept it
+        if getattr(request.user, 'role', None) == 'tenant':
+            if contract.tenant.user != request.user:
+                return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        if contract.is_accepted:
+            return Response({'message': 'Contract already accepted'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        contract.is_accepted = True
+        contract.date_accepted = timezone.now()
+        contract.save()
+        
+        return Response({
+            'message': 'Contract accepted successfully', 
+            'is_accepted': True
+        }, status=status.HTTP_200_OK)
 
 
 class PaymentViewSet(viewsets.ModelViewSet):

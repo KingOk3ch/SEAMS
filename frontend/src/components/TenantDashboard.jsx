@@ -11,6 +11,7 @@ import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
 import ArticleIcon from '@mui/icons-material/Article';
 import EventIcon from '@mui/icons-material/Event';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'; // NEW ICON
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 
@@ -36,6 +37,9 @@ function TenantDashboard() {
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [openLeaseDialog, setOpenLeaseDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
+  
+  // NEW: State for digital lease acceptance
+  const [acceptingLease, setAcceptingLease] = useState(false); 
 
   const [payForm, setPayForm] = useState({
     amount: '', payment_type: 'rent', method: 'bank', reference: '',
@@ -204,6 +208,33 @@ function TenantDashboard() {
     }
   };
 
+  // --- NEW: Handle Digital Signature ---
+  const handleAcceptLease = async () => {
+    setAcceptingLease(true);
+    setError('');
+    
+    try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch(`http://localhost:8000/api/contracts/${contractData.id}/accept/`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+            // Instantly update state to unblock the dashboard
+            setContractData(prev => ({ ...prev, is_accepted: true }));
+            setSuccess("Lease agreement accepted successfully! Welcome to SEAMS.");
+        } else {
+            const data = await res.json();
+            setError(data.error || "Failed to accept lease. Please try again.");
+        }
+    } catch (err) {
+        setError("Network error occurred while trying to accept lease.");
+    } finally {
+        setAcceptingLease(false);
+    }
+  };
+
   const handlePayFormChange = (field, value) => {
     setPayForm(prev => ({ ...prev, [field]: value }));
     if (fieldErrors[field]) {
@@ -283,7 +314,68 @@ function TenantDashboard() {
   const contractStatus = getContractStatus();
 
   return (
-    <Container maxWidth="lg">
+    <Container maxWidth="lg" sx={{ position: 'relative' }}>
+        
+      {/* --- NEW: THE FORCED LEASE ACCEPTANCE BLOCKER --- */}
+      {/* This renders specifically if a contract exists but is NOT accepted yet */}
+      <Dialog 
+        open={Boolean(contractData && contractData.is_accepted === false)} 
+        maxWidth="sm" 
+        fullWidth
+        disableEscapeKeyDown // Traps the user
+        hideBackdrop={false}
+      >
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssignmentTurnedInIcon />
+            Action Required: Accept Lease
+        </DialogTitle>
+        <DialogContent dividers sx={{ mt: 1 }}>
+            <Alert severity="warning" sx={{ mb: 3 }}>
+                Welcome to SEAMS! Before you can access your dashboard, you must review and accept your lease agreement.
+            </Alert>
+            
+            <Typography variant="caption" fontWeight="bold" color="text.secondary">LEASE DETAILS</Typography>
+            <Grid container spacing={2} sx={{ mb: 3, mt: 0.5 }}>
+                <Grid item xs={6}>
+                    <TextField label="Start Date" value={formatDate(contractData?.start_date)} fullWidth InputProps={{ readOnly: true }} variant="filled" size="small" />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField label="End Date" value={formatDate(contractData?.end_date)} fullWidth InputProps={{ readOnly: true }} variant="filled" size="small" />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField label="Monthly Rent" value={contractData ? formatCurrency(contractData.monthly_rent) : ''} fullWidth InputProps={{ readOnly: true }} variant="filled" size="small" />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField label="Deposit Required" value={contractData ? formatCurrency(contractData.deposit_paid) : ''} fullWidth InputProps={{ readOnly: true }} variant="filled" size="small" />
+                </Grid>
+            </Grid>
+
+            <Typography variant="caption" fontWeight="bold" color="text.secondary">TERMS & CONDITIONS</Typography>
+            <TextField 
+                multiline 
+                rows={6} 
+                value={contractData?.terms || DEFAULT_TERMS} 
+                fullWidth 
+                InputProps={{ readOnly: true }} 
+                variant="outlined" 
+                sx={{ bgcolor: '#f9f9f9', mt: 1 }}
+            />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, justifyContent: 'center' }}>
+            <Button 
+                onClick={handleAcceptLease} 
+                variant="contained" 
+                color="success" 
+                size="large" 
+                fullWidth
+                disabled={acceptingLease}
+            >
+                {acceptingLease ? <CircularProgress size={24} color="inherit" /> : "I Agree & Accept Lease Terms"}
+            </Button>
+        </DialogActions>
+      </Dialog>
+      {/* ------------------------------------------------ */}
+
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Typography variant="h4">My Dashboard</Typography>
         
@@ -457,7 +549,7 @@ function TenantDashboard() {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: View Lease Dialog (Read Only) */}
+      {/* View Accepted Lease Dialog (Read Only) */}
       <Dialog open={openLeaseDialog} onClose={() => setOpenLeaseDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
             <Box display="flex" alignItems="center" gap={1}>

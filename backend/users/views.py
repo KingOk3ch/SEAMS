@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
 from django.apps import apps 
+from django.db import transaction 
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
@@ -25,7 +26,7 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     
     def get_permissions(self):
-        if self.action == 'create':
+        if self.action in ['create', 'register', 'forgot_password']:
             return [AllowAny()]
         return [IsAuthenticated()]
     
@@ -84,7 +85,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='complete_profile')
     def complete_profile(self, request):
         user = request.user
         
@@ -103,9 +104,10 @@ class UserViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=False, methods=['patch'])
+    @action(detail=False, methods=['patch'], url_path='update_profile')
     def update_profile(self, request):
         user = request.user
+        password_changed = False
         
         allowed_fields = [
             'username', 'email', 'phone', 'specialization', 'profile_picture'
@@ -123,6 +125,7 @@ class UserViewSet(viewsets.ModelViewSet):
         if 'old_password' in request.data and 'new_password' in request.data:
             if user.check_password(request.data['old_password']):
                 user.set_password(request.data['new_password'])
+                password_changed = True
             else:
                 return Response(
                     {'error': 'Old password is incorrect'}, 
@@ -137,9 +140,23 @@ class UserViewSet(viewsets.ModelViewSet):
 
         try:
             user.save()
+            
+            if password_changed:
+                try:
+                    send_mail(
+                        subject='SEAMS - Password Changed Successfully',
+                        message=f'Hello {user.first_name},\n\nYour password has been successfully updated.\n\nIf you did not make this change, please contact the administrator immediately.',
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[user.email],
+                        fail_silently=False,
+                    )
+                except Exception as e:
+                    print(f"Failed to send password success email: {e}")
+
             return Response({
                 'message': 'Profile updated successfully',
-                'user': UserSerializer(user).data
+                'user': UserSerializer(user).data,
+                'password_changed': password_changed
             }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -149,7 +166,7 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
     
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='reset_password')
     def reset_password(self, request, pk=None):
         user = self.get_object()
         
@@ -162,8 +179,37 @@ class UserViewSet(viewsets.ModelViewSet):
             'message': f'Password reset successfully. New temporary password: {new_password}',
             'temporary_password': new_password
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='forgot_password')
+    def forgot_password(self, request):
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({'error': 'Please provide an email address.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({'error': 'No account found with this email address.'}, status=status.HTTP_404_NOT_FOUND)
+            
+        new_password = self.generate_random_password()
+        user.set_password(new_password)
+        user.profile_completed = False
+        user.save()
+        
+        try:
+            send_mail(
+                subject='SEAMS - Password Reset Request',
+                message=f'Hello {user.first_name},\n\nYour password has been successfully reset.\n\nYour new Temporary Password is: {new_password}\n\nPlease log in using this temporary password, then navigate directly to your Profile Settings to change it. For security, you will be required to log back in once your password is updated.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+            return Response({'message': 'A temporary password has been sent to your email address.'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"Failed to send reset email: {e}")
+            return Response({'error': 'Failed to send reset email. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser], url_path='pending_approvals')
     def pending_approvals(self, request):
         pending_users = User.objects.filter(approval_status='pending').order_by('-registration_date')
         serializer = UserSerializer(pending_users, many=True)
@@ -181,6 +227,7 @@ class UserViewSet(viewsets.ModelViewSet):
         
         House = apps.get_model('estates', 'House')
         Tenant = apps.get_model('estates', 'Tenant')
+        Contract = apps.get_model('estates', 'Contract') 
         
         house_id = request.data.get('house_id')
         if not house_id:
@@ -201,39 +248,60 @@ class UserViewSet(viewsets.ModelViewSet):
         )
         
         if serializer.is_valid():
-            user = serializer.save()
-            
             try:
-                move_in = request.data.get('move_in_date')
-                start_date = request.data.get('contract_start')
-                end_date = request.data.get('contract_end')
-                
-                tenant, created = Tenant.objects.get_or_create(
-                    user=user,
-                    defaults={
-                        'house': house,
-                        'move_in_date': move_in,
-                        'contract_start': start_date,
-                        'contract_end': end_date,
-                        'status': 'active'
-                    }
-                )
-                
-                if not created:
-                    tenant.house = house
-                    tenant.move_in_date = move_in
-                    tenant.contract_start = start_date
-                    tenant.contract_end = end_date
-                    tenant.status = 'active'
-                    tenant.save()
+                with transaction.atomic():
+                    user = serializer.save()
+                    
+                    move_in = request.data.get('move_in_date')
+                    start_date = request.data.get('contract_start')
+                    end_date = request.data.get('contract_end')
+                    
+                    tenant, created = Tenant.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'house': house,
+                            'move_in_date': move_in,
+                            'contract_start': start_date,
+                            'contract_end': end_date,
+                            'status': 'active'
+                        }
+                    )
+                    
+                    if not created:
+                        tenant.house = house
+                        tenant.move_in_date = move_in
+                        tenant.contract_start = start_date
+                        tenant.contract_end = end_date
+                        tenant.status = 'active'
+                        tenant.save()
 
-                house.status = 'occupied'
-                house.save()
-                
+                    house.status = 'occupied'
+                    house.save()
+                    
+                    # --- THE OFFICIAL SEAMS LEASE TERMS ---
+                    lease_terms = (
+                        "1. Rent Payment: Rent is due on or before the 5th of every month.\n"
+                        "2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.\n"
+                        "3. Utilities: Tenant pays for electricity (Token) and Water bill.\n"
+                        "4. Maintenance: Tenant keeps interior clean; Landlord handles structural repairs.\n"
+                        "5. Notice: One month written notice required before vacating.\n"
+                        "6. Conduct: No noise pollution or illegal activities allowed."
+                    )
+                    
+                    Contract.objects.get_or_create(
+                        tenant=tenant,
+                        house=house,
+                        start_date=start_date,
+                        end_date=end_date,
+                        defaults={
+                            'monthly_rent': house.rent_amount,
+                            'deposit_paid': house.rent_amount * 2, # <-- UPDATED: Rent x 2
+                            'is_accepted': False,
+                            'terms': lease_terms # <-- UPDATED: Applied Official Terms
+                        }
+                    )
             except Exception as e:
-                user.approval_status = 'pending'
-                user.save()
-                return Response({'error': f'Failed to create tenant profile: {str(e)}'}, status=400)
+                return Response({'error': f'Failed to complete approval: {str(e)}'}, status=400)
 
             try:
                 if user.is_active:
@@ -272,7 +340,6 @@ class UserViewSet(viewsets.ModelViewSet):
         first_name = user.first_name
         email = user.email
         
-        # 1. Send the rejection email before deleting the user
         try:
             send_mail(
                 subject='SEAMS Account Registration Update',
@@ -284,11 +351,10 @@ class UserViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Failed to send rejection email: {e}")
         
-        # 2. Hard delete the user to completely wipe their record
         user.delete()
         
         return Response({
-            'message': 'User rejected and permanently removed from the system.',
+            'message': 'User rejected.',
         }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])

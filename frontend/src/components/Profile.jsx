@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -31,6 +32,8 @@ function Profile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const navigate = useNavigate();
 
   // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
@@ -188,11 +191,27 @@ function Profile() {
         })
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        setSuccess('Password changed successfully');
         setPasswordData({ old_password: '', new_password: '', confirm_password: '' });
+        
+        // Check if the backend flagged that a password was changed
+        if (data.password_changed) {
+            setSuccess('Password changed successfully! Redirecting to login for security...');
+            
+            setTimeout(() => {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                localStorage.removeItem('user');
+                navigate('/');
+                window.location.reload(); 
+            }, 3000); 
+        } else {
+            setSuccess('Profile updated successfully.');
+        }
+
       } else {
-        const data = await response.json();
         const { global, fields } = parseBackendErrors(data);
         setError(global || 'Failed to change password.');
         setFieldErrors(fields);
