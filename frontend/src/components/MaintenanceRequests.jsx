@@ -14,6 +14,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import CloseIcon from '@mui/icons-material/Close';
 import BuildCircleIcon from '@mui/icons-material/BuildCircle';
 import { parseBackendErrors } from '../utils/errorHandler';
+import logoImage from '../assets/seamslogo.png';
 
 function MaintenanceRequests() {
   // --- 1. USER ROLE & ID EXTRACTION ---
@@ -31,6 +32,12 @@ function MaintenanceRequests() {
   const [tenants, setTenants] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Controls the loading spinner during maintenance request submission to prevent duplicates
+  const [submitLoading, setSubmitLoading] = useState(false);
+  // Controls the loading spinner during technician assignment to ensure data consistency
+  const [assignLoading, setAssignLoading] = useState(false);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
@@ -42,7 +49,6 @@ function MaintenanceRequests() {
   const [selectedImage, setSelectedImage] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [currentRequest, setCurrentRequest] = useState(null);
-  const [uploadingImages, setUploadingImages] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
 
   // Form Data
@@ -157,10 +163,11 @@ function MaintenanceRequests() {
     setOpenAssignDialog(true);
   };
 
-  const handleCloseDialog = () => { setOpenDialog(false); setEditMode(false); setCurrentRequest(null); setSelectedImages([]); setUploadingImages(false); };
+  const handleCloseDialog = () => { setOpenDialog(false); setEditMode(false); setCurrentRequest(null); setSelectedImages([]); setSubmitLoading(false); };
   const handleCloseAssignDialog = () => { setOpenAssignDialog(false); setCurrentRequest(null); };
 
   const handleAssignSubmit = async () => {
+    setAssignLoading(true);
     try {
       const token = localStorage.getItem('access_token');
       const url = `http://localhost:8000/api/maintenance/${currentRequest.id}/`;
@@ -183,11 +190,12 @@ function MaintenanceRequests() {
       } else {
         const data = await response.json(); setError(data.detail || 'Update failed');
       }
-    } catch (err) { setError('Network error'); }
+    } catch (err) { setError('Network error'); } finally { setAssignLoading(false); }
   };
 
   const handleSubmit = async () => {
     setFieldErrors({}); setError('');
+    setSubmitLoading(true);
     try {
       const token = localStorage.getItem('access_token');
       const submitData = { ...formData, assigned_to: formData.technician, reported_by: isTenant ? userId : undefined };
@@ -201,7 +209,6 @@ function MaintenanceRequests() {
 
       const url = editMode ? `http://localhost:8000/api/maintenance/${currentRequest.id}/` : 'http://localhost:8000/api/maintenance/';
       const method = editMode ? 'PUT' : 'POST';
-      if (selectedImages.length > 0) setUploadingImages(true);
 
       const response = await fetch(url, {
         method: method, headers: { 'Authorization': `Bearer ${token}` }, body: formDataToSend
@@ -214,7 +221,7 @@ function MaintenanceRequests() {
         const { global, fields } = parseBackendErrors(data);
         setError(global || 'Failed'); setFieldErrors(fields);
       }
-    } catch (err) { setError('Network error'); } finally { setUploadingImages(false); }
+    } catch (err) { setError('Network error'); } finally { setSubmitLoading(false); }
   };
 
   const handleDelete = async (requestId) => {
@@ -260,7 +267,27 @@ function MaintenanceRequests() {
       tabValue === 2 ? activeRequests : 
       completedRequests;
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+  // Displays a custom animated logo to reinforce branding during initial data fetch
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <Box
+          component="img"
+          src={logoImage}
+          alt="Loading SEAMS..."
+          sx={{
+            width: 150,
+            animation: 'pulse 1.5s infinite ease-in-out',
+            '@keyframes pulse': {
+              '0%': { transform: 'scale(0.95)', opacity: 0.7 },
+              '50%': { transform: 'scale(1.05)', opacity: 1 },
+              '100%': { transform: 'scale(0.95)', opacity: 0.7 },
+            }
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Container maxWidth="lg">
@@ -395,8 +422,8 @@ function MaintenanceRequests() {
           </Box>
         </DialogContent>
         <DialogActions>
-            <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSubmit} variant="contained" disabled={uploadingImages}>{uploadingImages ? 'Uploading...' : 'Save'}</Button>
+            <Button onClick={handleCloseDialog} disabled={submitLoading}>Cancel</Button>
+            <Button onClick={handleSubmit} variant="contained" disabled={submitLoading}>{submitLoading ? <CircularProgress size={24} color="inherit" /> : 'Save'}</Button>
         </DialogActions>
       </Dialog>
 
@@ -427,8 +454,8 @@ function MaintenanceRequests() {
             </Box>
         </DialogContent>
         <DialogActions>
-            <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-            <Button onClick={handleAssignSubmit} variant="contained" color="primary">Save Changes</Button>
+            <Button onClick={handleCloseAssignDialog} disabled={assignLoading}>Cancel</Button>
+            <Button onClick={handleAssignSubmit} variant="contained" color="primary" disabled={assignLoading}>{assignLoading ? <CircularProgress size={24} color="inherit" /> : 'Save Changes'}</Button>
         </DialogActions>
       </Dialog>
 

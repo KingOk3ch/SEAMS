@@ -13,13 +13,17 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import HomeIcon from '@mui/icons-material/Home';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import { parseBackendErrors } from '../utils/errorHandler';
+import logoImage from '../assets/seamslogo.png';
 
 function TenantManagement() {
   const [tenants, setTenants] = useState([]);
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   
+  // Tracks the active state for tenant creation to prevent double submission
   const [submitLoading, setSubmitLoading] = useState(false);
+  // Tracks the active state for house assignment to secure the transaction
+  const [assignLoading, setAssignLoading] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -268,6 +272,7 @@ function TenantManagement() {
   const handleAssignHouse = async () => {
     setFieldErrors({});
     setError('');
+    setAssignLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -294,6 +299,8 @@ function TenantManagement() {
     } catch (err) {
       setError('Network error occurred');
       console.error('Error:', err);
+    } finally {
+      setAssignLoading(false);
     }
   };
 
@@ -330,7 +337,27 @@ function TenantManagement() {
     h.status === 'vacant' || (editMode && currentTenant && h.id === currentTenant.house)
   ) : [];
 
-  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
+  // Displays a custom animated logo to reinforce branding during initial data fetch
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <Box
+          component="img"
+          src={logoImage}
+          alt="Loading SEAMS..."
+          sx={{
+            width: 150,
+            animation: 'pulse 1.5s infinite ease-in-out',
+            '@keyframes pulse': {
+              '0%': { transform: 'scale(0.95)', opacity: 0.7 },
+              '50%': { transform: 'scale(1.05)', opacity: 1 },
+              '100%': { transform: 'scale(0.95)', opacity: 0.7 },
+            }
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Container maxWidth="lg">
@@ -502,8 +529,10 @@ function TenantManagement() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseAssignDialog}>Cancel</Button>
-          <Button onClick={handleAssignHouse} variant="contained" color="success" disabled={!assignData.house}>Assign House</Button>
+          <Button onClick={handleCloseAssignDialog} disabled={assignLoading}>Cancel</Button>
+          <Button onClick={handleAssignHouse} variant="contained" color="success" disabled={!assignData.house || assignLoading}>
+            {assignLoading ? <CircularProgress size={24} color="inherit" /> : 'Assign House'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

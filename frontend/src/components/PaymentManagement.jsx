@@ -12,6 +12,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import { parseBackendErrors } from '../utils/errorHandler';
+import LogoLoader from './LogoLoader';
 
 function PaymentManagement() {
   // 0: Verification Queue (Default), 1: Payment History, 2: Bills
@@ -22,6 +23,9 @@ function PaymentManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Tracks which specific payment row is currently processing a verification to show localized loading spinners
+  const [processingId, setProcessingId] = useState(null);
 
   // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
@@ -92,6 +96,8 @@ function PaymentManagement() {
   // --- SMART VERIFY HANDLER ---
   const handleVerifyPayment = async (id) => {
     if(!window.confirm("Confirm verification? This will automatically allocate funds to unpaid bills.")) return;
+    
+    setProcessingId(id);
     try {
         const token = localStorage.getItem('access_token');
         const res = await fetch(`http://localhost:8000/api/payments/${id}/verify/`, {
@@ -112,6 +118,8 @@ function PaymentManagement() {
         }
     } catch(err) { 
         setError('Network error occurred');
+    } finally {
+        setProcessingId(null);
     }
   };
 
@@ -217,7 +225,7 @@ function PaymentManagement() {
   // History = Verified OR Rejected
   const historyPayments = payments.filter(p => p.status !== 'pending');
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">
@@ -286,16 +294,18 @@ function PaymentManagement() {
                                                 variant="contained" 
                                                 color="success" 
                                                 size="small" 
-                                                startIcon={<CheckCircleIcon />}
+                                                startIcon={processingId === p.id ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
+                                                disabled={processingId === p.id}
                                                 onClick={() => handleVerifyPayment(p.id)}
                                             >
-                                                Verify
+                                                {processingId === p.id ? 'Verifying...' : 'Verify'}
                                             </Button>
                                             <Button 
                                                 variant="outlined" 
                                                 color="error" 
                                                 size="small" 
                                                 startIcon={<CancelIcon />}
+                                                disabled={processingId === p.id}
                                                 onClick={() => handleOpenReject(p.id)}
                                             >
                                                 Reject

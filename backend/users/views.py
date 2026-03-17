@@ -295,9 +295,9 @@ class UserViewSet(viewsets.ModelViewSet):
                         end_date=end_date,
                         defaults={
                             'monthly_rent': house.rent_amount,
-                            'deposit_paid': house.rent_amount * 2, # <-- UPDATED: Rent x 2
+                            'deposit_paid': house.rent_amount * 2, 
                             'is_accepted': False,
-                            'terms': lease_terms # <-- UPDATED: Applied Official Terms
+                            'terms': lease_terms
                         }
                     )
             except Exception as e:

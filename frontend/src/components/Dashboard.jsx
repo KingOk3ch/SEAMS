@@ -32,7 +32,8 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import { useNavigate } from 'react-router-dom';
-import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
+import { parseBackendErrors } from '../utils/errorHandler'; 
+import LogoLoader from './LogoLoader';
 
 function Dashboard() {
   const [stats, setStats] = useState({
@@ -49,10 +50,15 @@ function Dashboard() {
   const [vacantHouses, setVacantHouses] = useState([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Secures the approval and rejection flows to prevent duplicate API requests and UI freezing
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(null);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // NEW: Field-level errors
+  // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [openApproveDialog, setOpenApproveDialog] = useState(false);
@@ -111,9 +117,12 @@ function Dashboard() {
     setOpenApproveDialog(true);
   };
 
+  // Prevents the user from accidentally closing the modal while the approval transaction is processing
   const handleCloseApproveDialog = () => {
-    setOpenApproveDialog(false);
-    setSelectedUser(null);
+    if (!approveLoading) {
+      setOpenApproveDialog(false);
+      setSelectedUser(null);
+    }
   };
 
   const handleApprovalInputChange = (e) => {
@@ -129,6 +138,7 @@ function Dashboard() {
   const handleApprove = async () => {
     setFieldErrors({});
     setError('');
+    setApproveLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -158,12 +168,16 @@ function Dashboard() {
     } catch (err) {
       setError('Network error occurred');
       console.error('Error:', err);
+    } finally {
+      setApproveLoading(false);
     }
   };
 
   const handleReject = async (userId, username) => {
     const reason = prompt(`Enter reason for rejecting ${username}:`);
     if (!reason) return;
+
+    setRejectLoading(userId);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -188,6 +202,8 @@ function Dashboard() {
     } catch (err) {
       setError('Network error occurred');
       console.error('Error:', err);
+    } finally {
+      setRejectLoading(null);
     }
   };
 
@@ -198,12 +214,9 @@ function Dashboard() {
     }).format(amount);
   };
 
+  // Implements the global reusable brand loader while the dashboard compiles data
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
-    );
+    return <LogoLoader />;
   }
 
   const StatCard = ({ icon, title, value, subtitle, color, path }) => (
@@ -361,6 +374,7 @@ function Dashboard() {
                         color="success"
                         onClick={() => handleOpenApproveDialog(user)}
                         sx={{ mr: 1 }}
+                        disabled={rejectLoading === user.id}
                       >
                         Approve
                       </Button>
@@ -369,8 +383,9 @@ function Dashboard() {
                         variant="outlined"
                         color="error"
                         onClick={() => handleReject(user.id, user.username)}
+                        disabled={rejectLoading === user.id}
                       >
-                        Reject
+                        {rejectLoading === user.id ? <CircularProgress size={20} color="inherit" /> : 'Reject'}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -525,14 +540,14 @@ function Dashboard() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseApproveDialog}>Cancel</Button>
+          <Button onClick={handleCloseApproveDialog} disabled={approveLoading}>Cancel</Button>
           <Button
             onClick={handleApprove}
             variant="contained"
             color="success"
-            disabled={!approvalData.house_id}
+            disabled={!approvalData.house_id || approveLoading}
           >
-            Approve & Assign
+            {approveLoading ? <CircularProgress size={24} color="inherit" /> : 'Approve & Assign'}
           </Button>
         </DialogActions>
       </Dialog>

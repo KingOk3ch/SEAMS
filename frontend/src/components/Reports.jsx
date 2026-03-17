@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container, Grid, Paper, Typography, Box, CircularProgress, Alert,
+  Container, Grid, Paper, Typography, Box, Alert,
   Card, CardContent, Divider, Table, TableBody, TableCell, 
   TableContainer, TableHead, TableRow, Chip, IconButton, Snackbar, Tooltip
 } from '@mui/material';
@@ -22,6 +22,7 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import WarningIcon from '@mui/icons-material/Warning';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import LogoLoader from './LogoLoader';
 
 // Register ChartJS components
 ChartJS.register(
@@ -98,7 +99,7 @@ function Reports() {
     return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(val || 0);
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+  if (loading) return <LogoLoader />;
 
   // --- Chart Configurations ---
 

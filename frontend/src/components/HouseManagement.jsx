@@ -14,6 +14,7 @@ import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import BookmarkAddedIcon from '@mui/icons-material/BookmarkAdded'; // Reserved Icon
 import { parseBackendErrors } from '../utils/errorHandler';
+import logoImage from '../assets/seamslogo.png';
 
 function HouseManagement() {
   const [houses, setHouses] = useState([]);
@@ -21,6 +22,9 @@ function HouseManagement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0); // 0: All, 1: Vacant, 2: Reserved, 3: Occupied, 4: Under Repair
+
+  // Prevents duplicate API calls by tracking the active submission state
+  const [submitLoading, setSubmitLoading] = useState(false);
 
   // Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
@@ -120,6 +124,7 @@ function HouseManagement() {
   const handleSubmit = async () => {
     setFieldErrors({});
     setError('');
+    setSubmitLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -149,6 +154,8 @@ function HouseManagement() {
       }
     } catch (err) {
       setError('Network error occurred');
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -201,7 +208,27 @@ function HouseManagement() {
       default: displayedHouses = houses;
   }
 
-  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
+  // Displays a custom animated logo to reinforce branding during initial data fetch
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <Box
+          component="img"
+          src={logoImage}
+          alt="Loading SEAMS..."
+          sx={{
+            width: 150,
+            animation: 'pulse 1.5s infinite ease-in-out',
+            '@keyframes pulse': {
+              '0%': { transform: 'scale(0.95)', opacity: 0.7 },
+              '50%': { transform: 'scale(1.05)', opacity: 1 },
+              '100%': { transform: 'scale(0.95)', opacity: 0.7 },
+            }
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Container maxWidth="lg">
@@ -379,8 +406,10 @@ function HouseManagement() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">{editMode ? 'Update' : 'Create'}</Button>
+          <Button onClick={handleCloseDialog} disabled={submitLoading}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={submitLoading}>
+            {submitLoading ? <CircularProgress size={24} color="inherit" /> : (editMode ? 'Update' : 'Create')}
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>

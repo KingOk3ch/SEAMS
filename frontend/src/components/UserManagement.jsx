@@ -18,6 +18,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import PersonIcon from '@mui/icons-material/Person';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import { parseBackendErrors } from '../utils/errorHandler';
+import LogoLoader from './LogoLoader';
 
 function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -25,6 +26,12 @@ function UserManagement() {
   const [loading, setLoading] = useState(true);
   
   const [submitLoading, setSubmitLoading] = useState(false);
+  
+  // Tracks loading state for the heavy approve & assign process to prevent duplicate submissions
+  const [approveLoading, setApproveLoading] = useState(false);
+  
+  // Tracks which specific user row is currently processing an action to show localized loading spinners
+  const [processingId, setProcessingId] = useState(null);
   
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -225,9 +232,12 @@ function UserManagement() {
     setOpenApproveDialog(true);
   };
 
+  // Prevent closing the modal while the approval request is actively running
   const handleCloseApproveDialog = () => {
-    setOpenApproveDialog(false);
-    setCurrentUser(null);
+    if (!approveLoading) {
+      setOpenApproveDialog(false);
+      setCurrentUser(null);
+    }
   };
 
   const handleApprovalInputChange = (e) => {
@@ -239,6 +249,8 @@ function UserManagement() {
   const handleApprove = async () => {
     setFieldErrors({});
     setError('');
+    setApproveLoading(true);
+    
     try {
       const token = localStorage.getItem('access_token');
       
@@ -263,12 +275,16 @@ function UserManagement() {
       }
     } catch (err) { 
       setError('Network error occurred'); 
+    } finally {
+      setApproveLoading(false);
     }
   };
 
   const handleReject = async (userId) => {
     const reason = prompt("Enter reason for rejection:");
     if (!reason) return;
+    
+    setProcessingId(userId);
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${userId}/reject/`, {
@@ -283,11 +299,17 @@ function UserManagement() {
       } else {
         setError('Failed to reject user');
       }
-    } catch (err) { setError('Network error occurred'); }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const handleResetPassword = async (userId, username) => {
     if (!window.confirm(`Reset password for ${username}?`)) return;
+    
+    setProcessingId(userId);
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${userId}/reset_password/`, {
@@ -301,11 +323,17 @@ function UserManagement() {
       } else {
         setError('Failed to reset password');
       }
-    } catch (err) { setError('Network error occurred'); }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const handleDelete = async (userId) => {
     if (!window.confirm('Delete this user?')) return;
+    
+    setProcessingId(userId);
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/api/users/${userId}/`, {
@@ -319,7 +347,11 @@ function UserManagement() {
       } else {
         setError('Failed to delete user');
       }
-    } catch (err) { setError('Network error occurred'); }
+    } catch (err) { 
+      setError('Network error occurred'); 
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const getRoleColor = (role) => {
@@ -341,7 +373,7 @@ function UserManagement() {
   else if (tabValue === 1) displayedUsers = tenantUsers;
   else if (tabValue === 2) displayedUsers = pendingUsers;
 
-  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">
@@ -397,14 +429,18 @@ function UserManagement() {
                   <TableCell>
                     {tabValue === 2 ? (
                       <>
-                        <Button size="small" variant="contained" color="success" startIcon={<ThumbUpIcon />} onClick={() => handleOpenApproveDialog(user)} sx={{ mr: 1 }}>Approve</Button>
-                        <Button size="small" variant="outlined" color="error" startIcon={<ThumbDownIcon />} onClick={() => handleReject(user.id)}>Reject</Button>
+                        <Button size="small" variant="contained" color="success" startIcon={<ThumbUpIcon />} onClick={() => handleOpenApproveDialog(user)} sx={{ mr: 1 }} disabled={processingId === user.id}>Approve</Button>
+                        <Button size="small" variant="outlined" color="error" startIcon={processingId === user.id ? <CircularProgress size={20} color="inherit" /> : <ThumbDownIcon />} onClick={() => handleReject(user.id)} disabled={processingId === user.id}>Reject</Button>
                       </>
                     ) : (
                       <>
-                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(user)}><EditIcon /></IconButton>
-                        <IconButton size="small" color="warning" onClick={() => handleResetPassword(user.id, user.username)}><LockResetIcon /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => handleDelete(user.id)}><DeleteIcon /></IconButton>
+                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(user)} disabled={processingId === user.id}><EditIcon /></IconButton>
+                        <IconButton size="small" color="warning" onClick={() => handleResetPassword(user.id, user.username)} disabled={processingId === user.id}>
+                          {processingId === user.id ? <CircularProgress size={20} color="inherit" /> : <LockResetIcon />}
+                        </IconButton>
+                        <IconButton size="small" color="error" onClick={() => handleDelete(user.id)} disabled={processingId === user.id}>
+                          {processingId === user.id ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
+                        </IconButton>
                       </>
                     )}
                   </TableCell>
@@ -503,14 +539,14 @@ function UserManagement() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseApproveDialog}>Cancel</Button>
+          <Button onClick={handleCloseApproveDialog} disabled={approveLoading}>Cancel</Button>
           <Button 
             onClick={handleApprove} 
             variant="contained" 
             color="success" 
-            disabled={!approvalData.house_id}
+            disabled={!approvalData.house_id || approveLoading}
           >
-            Approve & Assign
+            {approveLoading ? <CircularProgress size={24} color="inherit" /> : 'Approve & Assign'}
           </Button>
         </DialogActions>
       </Dialog>

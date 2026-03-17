@@ -14,6 +14,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import ArticleIcon from '@mui/icons-material/Article';
 import { parseBackendErrors } from '../utils/errorHandler';
+import LogoLoader from './LogoLoader';
 
 const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
 2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
@@ -27,6 +28,10 @@ function ContractManagement() {
   const [tenants, setTenants] = useState([]);
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Prevents duplicate API calls during contract submission
+  const [submitLoading, setSubmitLoading] = useState(false);
+  
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0); 
@@ -167,6 +172,7 @@ function ContractManagement() {
   const handleSubmit = async () => {
     setFieldErrors({});
     setError('');
+    setSubmitLoading(true);
 
     try {
       const token = localStorage.getItem('access_token');
@@ -196,6 +202,8 @@ function ContractManagement() {
       }
     } catch (err) {
       setError('Network error occurred');
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -278,7 +286,7 @@ function ContractManagement() {
     (editMode && currentContract && h.id === currentContract.house)
   );
 
-  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px"><CircularProgress /></Box>;
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">
@@ -435,8 +443,10 @@ function ContractManagement() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">{editMode ? 'Update' : 'Create'}</Button>
+          <Button onClick={handleCloseDialog} disabled={submitLoading}>Cancel</Button>
+          <Button onClick={handleSubmit} variant="contained" disabled={submitLoading}>
+            {submitLoading ? <CircularProgress size={24} color="inherit" /> : (editMode ? 'Update' : 'Create')}
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>
