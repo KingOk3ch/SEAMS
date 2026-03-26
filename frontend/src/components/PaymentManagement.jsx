@@ -262,7 +262,7 @@ function PaymentManagement() {
 
             <TableContainer component={Paper} elevation={3}>
                 <Table>
-                    <TableHead sx={{ bgcolor: '#fff3e0' }}>
+                    <TableHead>
                         <TableRow>
                             <TableCell><strong>Date</strong></TableCell>
                             <TableCell><strong>Tenant</strong></TableCell>

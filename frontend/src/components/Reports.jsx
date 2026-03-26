@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Container, Grid, Paper, Typography, Box, Alert,
   Card, CardContent, Divider, Table, TableBody, TableCell, 
-  TableContainer, TableHead, TableRow, Chip, IconButton, Snackbar, Tooltip
+  TableContainer, TableHead, TableRow, Chip, IconButton, Snackbar, Tooltip, Button
 } from '@mui/material';
 import {
   Chart as ChartJS,
@@ -22,6 +22,7 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import WarningIcon from '@mui/icons-material/Warning';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import LogoLoader from './LogoLoader';
 
 // Register ChartJS components
@@ -95,6 +96,31 @@ function Reports() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (debtors.length === 0) {
+      setAlertInfo({ open: true, message: 'No debtors to export.', severity: 'info' });
+      return;
+    }
+
+    const headers = ['Tenant Name', 'House Number', 'Phone', 'Outstanding Balance (KES)'];
+    const csvRows = [
+      headers.join(','),
+      ...debtors.map(d => `"${d.name}","${d.house}","${d.phone}","${d.balance}"`)
+    ];
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.setAttribute('hidden', '');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `SEAMS_Debtors_List_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(val || 0);
   };
@@ -107,14 +133,14 @@ function Reports() {
     labels: trends?.labels || [],
     datasets: [
       {
-        label: 'Income (KES)',
+        label: 'Income',
         data: trends?.income || [],
         borderColor: 'rgb(46, 125, 50)', // Green
         backgroundColor: 'rgba(46, 125, 50, 0.5)',
         tension: 0.3,
       },
       {
-        label: 'Expenses (KES)',
+        label: 'Expenses',
         data: trends?.expense || [],
         borderColor: 'rgb(211, 47, 47)', // Red
         backgroundColor: 'rgba(211, 47, 47, 0.5)',
@@ -123,19 +149,51 @@ function Reports() {
     ],
   };
 
+  const lineChartOptions = {
+    maintainAspectRatio: false,
+    responsive: true,
+    plugins: {
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            let label = context.dataset.label || '';
+            if (label) {
+              label += ': ';
+            }
+            if (context.parsed.y !== null) {
+              label += new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(context.parsed.y);
+            }
+            return label;
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        ticks: {
+          callback: function(value) {
+            return 'KES ' + value.toLocaleString();
+          }
+        }
+      }
+    }
+  };
+
   const occupancyChartData = {
-    labels: ['Occupied', 'Vacant', 'Maintenance'],
+    labels: ['Occupied', 'Vacant', 'Maintenance', 'Reserved'],
     datasets: [
       {
         data: [
           occupancy?.occupancy.occupied || 0,
           occupancy?.occupancy.vacant || 0,
           occupancy?.occupancy.maintenance || 0,
+          occupancy?.occupancy.reserved || 0,
         ],
         backgroundColor: [
-          'rgba(46, 125, 50, 0.8)', // Green
-          'rgba(25, 118, 210, 0.8)', // Blue
-          'rgba(237, 108, 2, 0.8)',  // Orange
+          'rgba(46, 125, 50, 0.8)',   // Green (Occupied)
+          'rgba(25, 118, 210, 0.8)',  // Blue (Vacant)
+          'rgba(237, 108, 2, 0.8)',   // Orange (Maintenance)
+          'rgba(156, 39, 176, 0.8)',  // Purple (Reserved)
         ],
         borderWidth: 1,
       },
@@ -227,7 +285,7 @@ function Reports() {
           <Paper sx={{ p: 3, height: '400px' }}>
             <Typography variant="h6" gutterBottom>Financial Trends (6 Months)</Typography>
             <Box height="320px">
-              <Line data={lineChartData} options={{ maintainAspectRatio: false, responsive: true }} />
+              <Line data={lineChartData} options={lineChartOptions} />
             </Box>
           </Paper>
         </Grid>
@@ -268,9 +326,21 @@ function Reports() {
         {/* 5. DEBTORS / ARREARS TABLE */}
         <Grid item xs={12} md={6}>
             <Paper sx={{ p: 0, height: '100%', overflow: 'hidden' }}>
-                <Box p={2} bgcolor="#ffebee" display="flex" alignItems="center">
-                    <WarningIcon color="error" sx={{ mr: 1 }} />
-                    <Typography variant="h6" color="error.main">Outstanding Rent (This Month)</Typography>
+                <Box p={2} bgcolor="#ffebee" display="flex" alignItems="center" justifyContent="space-between">
+                    <Box display="flex" alignItems="center">
+                        <WarningIcon color="error" sx={{ mr: 1 }} />
+                        <Typography variant="h6" color="error.main">Outstanding Rent</Typography>
+                    </Box>
+                    <Button 
+                        size="small" 
+                        variant="outlined" 
+                        color="error" 
+                        startIcon={<FileDownloadIcon />}
+                        onClick={handleExportCSV}
+                        disabled={debtors.length === 0}
+                    >
+                        Export CSV
+                    </Button>
                 </Box>
                 <TableContainer sx={{ maxHeight: 300 }}>
                     <Table stickyHeader size="small">

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions
+  Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Accordion, AccordionSummary, AccordionDetails
 } from '@mui/material';
 import { PersonOutline, LockOutlined, VisibilityOffOutlined, VisibilityOutlined } from '@mui/icons-material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 
@@ -15,8 +16,8 @@ function Login({ onLogin }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [loading, setLoading] = useState(false);
   
-  // NEW: State for password visibility
   const [showPassword, setShowPassword] = useState(false); 
+  const [rememberMe, setRememberMe] = useState(false);
 
   // --- Verification Modal State ---
   const [verifyOpen, setVerifyOpen] = useState(false);
@@ -29,8 +30,22 @@ function Login({ onLogin }) {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotMsg, setForgotMsg] = useState({ type: '', text: '' });
+
+  // --- Navbar Info Modals State ---
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [faqsOpen, setFaqsOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [expandedFaq, setExpandedFaq] = useState(false);
   
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const savedUsername = localStorage.getItem('seams_remembered_username');
+    if (savedUsername) {
+      setUsername(savedUsername);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleInputChange = (setter, field) => (e) => {
       setter(e.target.value);
@@ -63,6 +78,12 @@ function Login({ onLogin }) {
       const data = await response.json();
 
       if (response.ok) {
+        if (rememberMe) {
+          localStorage.setItem('seams_remembered_username', username);
+        } else {
+          localStorage.removeItem('seams_remembered_username');
+        }
+
         localStorage.setItem('access_token', data.access);
         localStorage.setItem('refresh_token', data.refresh);
         
@@ -189,6 +210,24 @@ function Login({ onLogin }) {
     }
   };
 
+  const handleTopLoginClick = () => {
+    const inputElement = document.getElementById('login-username-input');
+    if (inputElement) {
+      inputElement.focus();
+    }
+  };
+
+  const handleFaqChange = (panel) => (event, isExpanded) => {
+    setExpandedFaq(isExpanded ? panel : false);
+  };
+
+  const navItems = [
+    { label: 'HOME', action: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+    { label: 'ABOUT', action: () => setAboutOpen(true) },
+    { label: 'FAQS', action: () => setFaqsOpen(true) },
+    { label: 'CONTACT', action: () => setContactOpen(true) }
+  ];
+
   const customInputStyles = {
     mb: 2.5,
     '& .MuiOutlinedInput-root': {
@@ -219,8 +258,8 @@ function Login({ onLogin }) {
       color: 'white',
     },
     '& .MuiInputBase-input': {
-      color: 'white',        // Forces the typed text to be white
-      caretColor: 'white',   // Forces the typing cursor to be white
+      color: 'white',        
+      caretColor: 'white',   
       '&:-webkit-autofill': {
         transition: 'background-color 5000s ease-in-out 0s',
         WebkitTextFillColor: 'white !important',
@@ -232,6 +271,19 @@ function Login({ onLogin }) {
       fontFamily: "'Poppins', sans-serif",
     }
   };
+
+  // Reusable glass style for all modals
+  const glassDialogStyle = {
+    backdropFilter: 'blur(15px)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    color: 'white',
+    borderRadius: '16px',
+    boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)'
+  };
+
+  // Helper for dialog divider color
+  const dividerStyle = { borderColor: 'rgba(255,255,255,0.15)' };
 
   return (
     <Box
@@ -274,9 +326,13 @@ function Login({ onLogin }) {
         />
 
         <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 4 }}>
-          {['HOME', 'ABOUT', 'CONTACT', 'BLOG'].map((item) => (
-            <Typography key={item} sx={{ color: 'white', fontFamily: "'Poppins', sans-serif", fontSize: '0.9rem', cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
-              {item}
+          {navItems.map((item) => (
+            <Typography 
+              key={item.label} 
+              onClick={item.action}
+              sx={{ color: 'white', fontFamily: "'Poppins', sans-serif", fontSize: '0.9rem', cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
+            >
+              {item.label}
             </Typography>
           ))}
         </Box>
@@ -289,7 +345,8 @@ function Login({ onLogin }) {
             SIGN UP
           </Button>
           <Button 
-            variant="contained" 
+            variant="contained"
+            onClick={handleTopLoginClick}
             sx={{ bgcolor: 'white', color: 'black', borderRadius: '50px', px: 4, fontWeight: 'bold', fontFamily: "'Poppins', sans-serif", '&:hover': { bgcolor: 'grey.200' } }}
           >
             LOGIN
@@ -340,6 +397,7 @@ function Login({ onLogin }) {
 
           <Box component="form" onSubmit={handleSubmit}>
             <TextField
+              id="login-username-input"
               fullWidth
               name="username"
               placeholder="Username or Email"
@@ -399,7 +457,13 @@ function Login({ onLogin }) {
 
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
               <FormControlLabel
-                control={<Checkbox sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }} />}
+                control={
+                  <Checkbox 
+                    checked={rememberMe} 
+                    onChange={(e) => setRememberMe(e.target.checked)} 
+                    sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }} 
+                  />
+                }
                 label={<Typography sx={{ color: 'white', fontSize: '0.85rem', fontFamily: "'Poppins', sans-serif" }}>Remember me</Typography>}
               />
               <Link 
@@ -433,7 +497,6 @@ function Login({ onLogin }) {
               {loading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'LOGIN'}
             </Button>
 
-            {/* --- VERIFICATION LINK --- */}
             <Box sx={{ textAlign: 'center', mb: 3 }}>
               <Link 
                 component="button" 
@@ -467,17 +530,109 @@ function Login({ onLogin }) {
         </Box>
       </Box>
 
+      {/* --- INFO MODALS (ABOUT, FAQS, CONTACT) --- */}
+      <Dialog open={aboutOpen} onClose={() => setAboutOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: glassDialogStyle }}>
+        <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>About SEAMS</DialogTitle>
+        <DialogContent dividers sx={dividerStyle}>
+          <Typography variant="body1" sx={{ fontFamily: "'Poppins', sans-serif", mb: 2, color: 'rgba(255,255,255,0.9)' }}>
+            The Smart Estate & Apartment Management System (SEAMS) is your centralized, modern portal for streamlined property living. 
+          </Typography>
+          <Typography variant="body2" sx={{ fontFamily: "'Poppins', sans-serif", color: 'rgba(255,255,255,0.7)' }}>
+            We eliminate manual paperwork by providing an easy-to-use platform for digital lease signing, automated billing, transparent payment tracking, and responsive maintenance reporting.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={dividerStyle}>
+          <Button onClick={() => setAboutOpen(false)} sx={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={faqsOpen} onClose={() => setFaqsOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: glassDialogStyle }}>
+        <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Frequently Asked Questions</DialogTitle>
+        <DialogContent dividers sx={{ p: 0, ...dividerStyle }}>
+          <Accordion 
+            expanded={expandedFaq === 'panel1'} 
+            onChange={handleFaqChange('panel1')} 
+            disableGutters elevation={0} square
+            sx={{ bgcolor: 'transparent', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)', '&:before': { display: 'none' } }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
+              <Typography sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 500 }}>How do I get my login details?</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ bgcolor: 'rgba(255,255,255,0.05)' }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
+                If you are a new tenant, click "SIGN UP" or "Register here" to create your account. Once an administrator approves your registration and allocates your unit, you will be able to log in.
+              </Typography>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion 
+            expanded={expandedFaq === 'panel2'} 
+            onChange={handleFaqChange('panel2')} 
+            disableGutters elevation={0} square
+            sx={{ bgcolor: 'transparent', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)', '&:before': { display: 'none' } }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
+              <Typography sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 500 }}>What if I forgot my password?</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ bgcolor: 'rgba(255,255,255,0.05)' }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
+                Click the "Forgot Password" link on the login form. Enter your registered email, and we will send you a temporary password to regain access to your account.
+              </Typography>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion 
+            expanded={expandedFaq === 'panel3'} 
+            onChange={handleFaqChange('panel3')} 
+            disableGutters elevation={0} square
+            sx={{ bgcolor: 'transparent', color: 'white', '&:before': { display: 'none' } }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}>
+              <Typography sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 500 }}>How do I report a maintenance issue?</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ bgcolor: 'rgba(255,255,255,0.05)' }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
+                Log in to your Tenant Dashboard, navigate to the "Requests" or "Maintenance" section, and click "Report Issue". You can describe the problem and even upload a photo for the technician.
+              </Typography>
+            </AccordionDetails>
+          </Accordion>
+        </DialogContent>
+        <DialogActions sx={dividerStyle}>
+          <Button onClick={() => setFaqsOpen(false)} sx={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={contactOpen} onClose={() => setContactOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: glassDialogStyle }}>
+        <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Contact Support</DialogTitle>
+        <DialogContent dividers sx={dividerStyle}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', fontFamily: "'Poppins', sans-serif" }}>
+              Need immediate assistance? Reach out to the estate management team:
+            </Typography>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Email Support:</Typography>
+              <Typography variant="body1" sx={{ color: '#a5d6a7', fontFamily: "'Poppins', sans-serif" }}>support.seams@gmail.com</Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Phone Support:</Typography>
+              <Typography variant="body1" sx={{ color: '#a5d6a7', fontFamily: "'Poppins', sans-serif" }}>+254 700 000 000</Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={dividerStyle}>
+          <Button onClick={() => setContactOpen(false)} sx={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* --- VERIFICATION MODAL --- */}
-      <Dialog open={verifyOpen} onClose={closeVerifyDialog} maxWidth="xs" fullWidth>
+      <Dialog open={verifyOpen} onClose={closeVerifyDialog} maxWidth="xs" fullWidth PaperProps={{ sx: glassDialogStyle }}>
         <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Verify Your Account</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "'Poppins', sans-serif" }}>
+        <DialogContent dividers sx={dividerStyle}>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', fontFamily: "'Poppins', sans-serif", mb: 2 }}>
               Enter the email address associated with your account and the 6-digit verification code you received.
             </Typography>
 
             {verifyMsg.text && (
-              <Alert severity={verifyMsg.type} sx={{ mb: 1 }}>
+              <Alert severity={verifyMsg.type} sx={{ mb: 2 }}>
                 {verifyMsg.text}
               </Alert>
             )}
@@ -490,6 +645,7 @@ function Login({ onLogin }) {
               onChange={handleVerifyChange}
               fullWidth
               required
+              sx={customInputStyles}
             />
             <TextField
               label="6-Digit Verification Code"
@@ -499,36 +655,36 @@ function Login({ onLogin }) {
               fullWidth
               required
               inputProps={{ maxLength: 6 }}
+              sx={{ ...customInputStyles, mb: 0 }} // Remove bottom margin for the last input
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={closeVerifyDialog} disabled={verifyLoading} sx={{ fontFamily: "'Poppins', sans-serif" }}>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, ...dividerStyle }}>
+          <Button onClick={closeVerifyDialog} disabled={verifyLoading} sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
             Cancel
           </Button>
           <Button 
             onClick={handleVerifySubmit} 
             variant="contained" 
-            color="primary"
+            sx={{ bgcolor: 'white', color: 'black', fontFamily: "'Poppins', sans-serif", '&:hover': { bgcolor: 'grey.200' } }}
             disabled={verifyLoading || !verifyData.email || !verifyData.code}
-            sx={{ fontFamily: "'Poppins', sans-serif" }}
           >
-            {verifyLoading ? <CircularProgress size={24} color="inherit" /> : 'Verify'}
+            {verifyLoading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'Verify'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* --- FORGOT PASSWORD MODAL --- */}
-      <Dialog open={forgotOpen} onClose={closeForgotDialog} maxWidth="xs" fullWidth>
+      <Dialog open={forgotOpen} onClose={closeForgotDialog} maxWidth="xs" fullWidth PaperProps={{ sx: glassDialogStyle }}>
         <DialogTitle sx={{ fontFamily: "'Poppins', sans-serif", fontWeight: 'bold' }}>Reset Password</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "'Poppins', sans-serif" }}>
+        <DialogContent dividers sx={dividerStyle}>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', fontFamily: "'Poppins', sans-serif", mb: 2 }}>
               Enter your registered email address to receive a temporary password.
             </Typography>
 
             {forgotMsg.text && (
-              <Alert severity={forgotMsg.type} sx={{ mb: 1 }}>
+              <Alert severity={forgotMsg.type} sx={{ mb: 2 }}>
                 {forgotMsg.text}
               </Alert>
             )}
@@ -542,21 +698,21 @@ function Login({ onLogin }) {
               fullWidth
               required
               autoFocus
+              sx={{ ...customInputStyles, mb: 0 }} 
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={closeForgotDialog} disabled={forgotLoading} sx={{ fontFamily: "'Poppins', sans-serif" }}>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, ...dividerStyle }}>
+          <Button onClick={closeForgotDialog} disabled={forgotLoading} sx={{ color: 'rgba(255,255,255,0.7)', fontFamily: "'Poppins', sans-serif" }}>
             Cancel
           </Button>
           <Button 
             onClick={handleForgotSubmit} 
             variant="contained" 
-            color="primary"
+            sx={{ bgcolor: 'white', color: 'black', fontFamily: "'Poppins', sans-serif", '&:hover': { bgcolor: 'grey.200' } }}
             disabled={forgotLoading || !forgotEmail}
-            sx={{ fontFamily: "'Poppins', sans-serif" }}
           >
-            {forgotLoading ? <CircularProgress size={24} color="inherit" /> : 'Send Reset Link'}
+            {forgotLoading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'Send Link'}
           </Button>
         </DialogActions>
       </Dialog>
