@@ -8,7 +8,7 @@ import AddCardIcon from '@mui/icons-material/AddCard';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
 import InfoIcon from '@mui/icons-material/Info';
-import { parseBackendErrors } from '../utils/errorHandler'; // NEW IMPORT
+import { parseBackendErrors } from '../utils/errorHandler';
 
 function TenantPayments() {
   const [tabIndex, setTabIndex] = useState(0);
@@ -16,7 +16,6 @@ function TenantPayments() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // NEW: Field-level errors
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [bills, setBills] = useState([]);
@@ -24,7 +23,6 @@ function TenantPayments() {
   const [tenantData, setTenantData] = useState(null);
   const [outstandingBalance, setOutstandingBalance] = useState(0);
 
-  // Payment Dialog
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [isBillPayment, setIsBillPayment] = useState(false);
 
@@ -68,21 +66,17 @@ function TenantPayments() {
         const myBills = billsData.filter(b => b.tenant === myTenant.id);
         const myPayments = paymentsData.filter(p => p.tenant === myTenant.id);
 
-        // --- SORTING LOGIC: Pending (1) > Rejected (2) > Verified (3) ---
         myPayments.sort((a, b) => {
             const getScore = (p) => {
-                // Verified/Completed -> Bottom
                 if (p.is_verified || p.status === 'verified') return 3;
-                // Rejected -> Middle
                 if (p.status === 'rejected') return 2;
-                // Pending (Actionable) -> Top
                 return 1;
             };
             const scoreA = getScore(a);
             const scoreB = getScore(b);
 
-            if (scoreA !== scoreB) return scoreA - scoreB; // Lower score first
-            return new Date(b.payment_date) - new Date(a.payment_date); // Newest date first
+            if (scoreA !== scoreB) return scoreA - scoreB;
+            return new Date(b.payment_date) - new Date(a.payment_date);
         });
 
         setBills(myBills);
@@ -91,7 +85,10 @@ function TenantPayments() {
 
         const totalUnpaid = myBills
             .filter(b => !b.is_paid)
-            .reduce((sum, b) => sum + parseFloat(b.amount), 0);
+            .reduce((sum, b) => {
+                const balance = parseFloat(b.amount) - parseFloat(b.amount_paid || 0);
+                return sum + (balance > 0 ? balance : 0);
+            }, 0);
 
         setOutstandingBalance(totalUnpaid);
       }
@@ -104,31 +101,38 @@ function TenantPayments() {
     }
   };
 
-  // --- SMART CHECK ---
   const getBillStatus = (bill) => {
-    if (bill.is_paid) return { label: "PAID", color: "success", canPay: false };
+    const balanceDue = parseFloat(bill.amount) - parseFloat(bill.amount_paid || 0);
+
+    if (bill.is_paid || balanceDue <= 0) return { label: "PAID", color: "success", canPay: false };
 
     const pendingPayment = payments.find(p =>
         (!p.is_verified && p.status !== 'rejected') &&
-        parseFloat(p.amount) === parseFloat(bill.amount) &&
-        p.payment_type === bill.bill_type
+        p.payment_type === bill.bill_type &&
+        parseFloat(p.amount) <= balanceDue 
     );
 
     if (pendingPayment) {
-        return { label: "Pending", color: "warning", canPay: false };
+        return { label: "VERIFYING", color: "info", canPay: false };
+    }
+
+    if (parseFloat(bill.amount_paid) > 0) {
+        return { label: "PARTIALLY PAID", color: "warning", canPay: true };
     }
 
     return { label: "UNPAID", color: "error", canPay: true };
   };
 
   const handlePayBill = (bill) => {
+    const balanceDue = parseFloat(bill.amount) - parseFloat(bill.amount_paid || 0);
+    
     setIsBillPayment(true);
     setFieldErrors({});
     setError('');
     setSuccess('');
     setPayForm({
         ...payForm,
-        amount: bill.amount,
+        amount: balanceDue > 0 ? balanceDue : 0,
         payment_type: bill.bill_type,
         payment_date: new Date().toISOString().split('T')[0],
         reference: ''
@@ -191,7 +195,6 @@ function TenantPayments() {
     }
   };
 
-  // NEW: Clear field errors on input
   const handlePayFormChange = (field, value) => {
     setPayForm(prev => ({ ...prev, [field]: value }));
     if (fieldErrors[field]) {
@@ -201,7 +204,6 @@ function TenantPayments() {
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
 
-  // Status Chip Helper
   const getStatusChip = (p) => {
       if(p.status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
       if(p.status === 'verified' || p.is_verified) return <Chip label="Verified" color="success" size="small" />;
@@ -245,7 +247,6 @@ function TenantPayments() {
         </Tabs>
       </Paper>
 
-      {/* --- BILLS TAB --- */}
       {tabIndex === 0 && (
         <TableContainer component={Paper}>
             <Table>
@@ -253,7 +254,7 @@ function TenantPayments() {
                     <TableRow>
                         <TableCell>Date</TableCell>
                         <TableCell>Bill For</TableCell>
-                        <TableCell>Amount</TableCell>
+                        <TableCell>Amount Due</TableCell>
                         <TableCell>Description</TableCell>
                         <TableCell>Status</TableCell>
                         <TableCell>Action</TableCell>
@@ -265,12 +266,22 @@ function TenantPayments() {
                     ) : (
                         bills.map((bill) => {
                             const status = getBillStatus(bill);
+                            const balanceDue = parseFloat(bill.amount) - parseFloat(bill.amount_paid || 0);
 
                             return (
                                 <TableRow key={bill.id}>
                                     <TableCell>{new Date(bill.created_at).toLocaleDateString()}</TableCell>
                                     <TableCell><Chip label={bill.bill_type.toUpperCase()} variant="outlined" /></TableCell>
-                                    <TableCell fontWeight="bold">{formatCurrency(bill.amount)}</TableCell>
+                                    <TableCell>
+                                        <Typography fontWeight="bold">
+                                            {formatCurrency(balanceDue > 0 ? balanceDue : 0)}
+                                        </Typography>
+                                        {parseFloat(bill.amount_paid) > 0 && balanceDue > 0 && (
+                                            <Typography variant="caption" color="textSecondary" display="block">
+                                                Original: {formatCurrency(bill.amount)}
+                                            </Typography>
+                                        )}
+                                    </TableCell>
                                     <TableCell>{bill.description || '-'}</TableCell>
                                     <TableCell>
                                         <Chip
@@ -286,7 +297,7 @@ function TenantPayments() {
                                             </Button>
                                         ) : (
                                             <Typography variant="caption" color="textSecondary">
-                                                {status.label === 'Pending' ? 'Verifying...' : 'Completed'}
+                                                {status.label === 'VERIFYING' ? 'Verifying...' : 'Completed'}
                                             </Typography>
                                         )}
                                     </TableCell>
@@ -299,7 +310,6 @@ function TenantPayments() {
         </TableContainer>
       )}
 
-      {/* --- PAYMENTS TAB --- */}
       {tabIndex === 1 && (
         <TableContainer component={Paper}>
             <Table>
@@ -340,7 +350,6 @@ function TenantPayments() {
         </TableContainer>
       )}
 
-      {/* --- DIALOG --- */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{isBillPayment ? "Pay Bill" : "Make a Payment"}</DialogTitle>
         <DialogContent>
