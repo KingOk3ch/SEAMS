@@ -1,13 +1,13 @@
 from rest_framework import viewsets, status
-from rest_framework.views import APIView # <--- NEW IMPORT
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count, Q, Sum # <--- ADDED Sum
+from django.db.models import Count, Q, Sum
 from datetime import date, timedelta
 from django.db import IntegrityError, transaction
-from decimal import Decimal  # <--- IMPORTED FOR SAFE MATH
-from django.utils import timezone # <--- NEW: For stamping the signature time
+from decimal import Decimal
+from django.utils import timezone
 from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 from users.models import Notification
@@ -80,7 +80,7 @@ class TenantViewSet(viewsets.ModelViewSet):
 class ContractViewSet(viewsets.ModelViewSet):
     queryset = Contract.objects.all()
     serializer_class = ContractSerializer
-    # --- UPDATED: Allow tenants to view and accept their contracts ---
+    # Allow tenants to view and accept their contracts
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
@@ -89,7 +89,7 @@ class ContractViewSet(viewsets.ModelViewSet):
             return Contract.objects.filter(tenant__user=user)
         return Contract.objects.all()
 
-    # --- NEW: Digital signature endpoint ---
+    # Digital signature endpoint
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):
         contract = self.get_object()
@@ -139,7 +139,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         tenant_name = "Unknown"
         
-        # --- ADMIN MANUAL ENTRY FIX ---
+        # ADMIN MANUAL ENTRY FIX
         if getattr(user, 'role', None) == 'estate_admin':
             tenant_obj = serializer.validated_data.get('tenant')
             
@@ -173,7 +173,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(is_verified=False, status='pending', archived_tenant_name=tenant_name)
 
-    # --- UPDATED: SMART VERIFICATION LOGIC ---
+    # SMART VERIFICATION LOGIC
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         if getattr(request.user, 'role', None) != 'estate_admin':
@@ -193,16 +193,11 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
             # 2. Smart Allocation Logic
             # Find ALL unpaid bills of the SAME type (e.g. Water pays Water), ordered by Oldest First
-            # We REMOVED the strict date filter so payments can clear arrears (old debts)
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
                 bill_type=payment.payment_type,
                 is_paid=False
             ).order_by('month_for')
-            
-            # Note: We commented out the month specific filter to allow flexible payments
-            # if payment.month_for:
-            #      matching_bills = matching_bills.filter(...)
 
             remaining_credit = payment.amount
             bills_updated_count = 0
@@ -295,7 +290,7 @@ class BillViewSet(viewsets.ModelViewSet):
         serializer.save(archived_tenant_name=tenant_name)
 
 
-#  PRO DASHBOARD ANALYTICS ENGINE ---
+# PRO DASHBOARD ANALYTICS ENGINE
 class DashboardStatsView(APIView):
     """
     Calculates all the heavy dashboard metrics directly on the database.

@@ -1,8 +1,9 @@
 from django.db import models
 from django.conf import settings
-from django.db.models.signals import pre_delete
+from django.db.models.signals import pre_delete, post_save
 from django.dispatch import receiver
 from decimal import Decimal
+from django.utils import timezone
 
 class House(models.Model):
     STATUS_CHOICES = [
@@ -73,10 +74,10 @@ class Contract(models.Model):
     monthly_rent = models.DecimalField(max_digits=10, decimal_places=2)
     deposit_paid = models.DecimalField(max_digits=10, decimal_places=2)
     
-    # --- ADDED: To support custom lease terms ---
+    # To support custom lease terms
     terms = models.TextField(blank=True, null=True)
     
-    # --- NEW: Digital Acceptance Tracking ---
+    # Digital Acceptance Tracking
     is_accepted = models.BooleanField(default=False)
     date_accepted = models.DateTimeField(null=True, blank=True)
     
@@ -122,7 +123,7 @@ class Payment(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='rent')
     
-    # --- UPDATED: Enforce Uniqueness to prevent duplicates ---
+    # Enforce Uniqueness to prevent duplicates
     reference_number = models.CharField(
         max_length=50, 
         blank=True, 
@@ -163,7 +164,7 @@ class Bill(models.Model):
     bill_type = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     
-    # --- ADDED: Track partial payments ---
+    # Track partial payments
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     
     month_for = models.DateField(help_text="Month this bill applies to")
@@ -186,6 +187,7 @@ class Bill(models.Model):
     def balance_due(self):
         return self.amount - self.amount_paid
 
+
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
 def release_house_on_tenant_delete(sender, instance, **kwargs):
@@ -193,3 +195,38 @@ def release_house_on_tenant_delete(sender, instance, **kwargs):
         house = instance.house
         house.status = 'vacant'
         house.save()
+
+# Signal to automatically generate initial rent and deposit bills when a new lease contract is created.
+# This ensures bills are generated regardless of whether the contract is created manually in the UI 
+# or automatically during the tenant approval workflow.
+@receiver(post_save, sender=Contract)
+def generate_initial_bills_on_contract_create(sender, instance, created, **kwargs):
+    if created:
+        tenant = instance.tenant
+        tenant_name = "Unknown"
+        if tenant and tenant.user:
+            tenant_name = tenant.user.get_full_name() or tenant.user.username
+
+        current_date = timezone.now().date()
+
+        # Generate Security Deposit Bill based on the contract terms
+        if instance.deposit_paid and instance.deposit_paid > 0:
+            Bill.objects.create(
+                tenant=tenant,
+                bill_type='deposit',
+                amount=instance.deposit_paid,
+                month_for=current_date,
+                description=f"Initial Security Deposit for House {instance.house.house_number}",
+                archived_tenant_name=tenant_name
+            )
+        
+        # Generate First Month's Rent Bill based on the contract terms
+        if instance.monthly_rent and instance.monthly_rent > 0:
+            Bill.objects.create(
+                tenant=tenant,
+                bill_type='rent',
+                amount=instance.monthly_rent,
+                month_for=current_date,
+                description=f"First Month's Rent for House {instance.house.house_number}",
+                archived_tenant_name=tenant_name
+            )

@@ -3,7 +3,7 @@ import {
   Box, Typography, TextField, Button, Checkbox, FormControlLabel, Link, InputAdornment, IconButton, Alert, CircularProgress
 } from '@mui/material';
 import { 
-  PersonOutline, EmailOutlined, LockOutlined, VisibilityOffOutlined, 
+  PersonOutline, EmailOutlined, LockOutlined, VisibilityOffOutlined, VisibilityOutlined,
   PhoneOutlined, BadgeOutlined, CheckCircle, MarkEmailRead 
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -27,6 +27,16 @@ const TenantRegistration = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const handleClickShowPassword = () => setShowPassword((show) => !show);
+  const handleClickShowConfirmPassword = () => setShowConfirmPassword((show) => !show);
+
+  const handleMouseDownPassword = (event) => {
+    event.preventDefault();
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -276,8 +286,73 @@ const TenantRegistration = () => {
                   <TextField fullWidth name="id_number" placeholder="ID Number" variant="outlined" value={formData.id_number} onChange={handleChange} disabled={loading} error={!!errors.id_number} helperText={errors.id_number} sx={customInputStyles} InputProps={{ startAdornment: (<InputAdornment position="start"><BadgeOutlined sx={{ color: 'white' }} /></InputAdornment>) }} />
                 </Box>
 
-                <TextField fullWidth name="password" type="password" placeholder="Password" variant="outlined" value={formData.password} onChange={handleChange} disabled={loading} error={!!errors.password} helperText={errors.password || 'Min 8 characters'} sx={customInputStyles} InputProps={{ startAdornment: (<InputAdornment position="start"><LockOutlined sx={{ color: 'white' }} /></InputAdornment>) }} />
-                <TextField fullWidth name="confirmPassword" type="password" placeholder="Confirm Password" variant="outlined" value={formData.confirmPassword} onChange={handleChange} disabled={loading} error={!!errors.confirmPassword} helperText={errors.confirmPassword} sx={customInputStyles} InputProps={{ startAdornment: (<InputAdornment position="start"><LockOutlined sx={{ color: 'white' }} /></InputAdornment>) }} />
+                <TextField 
+                  fullWidth 
+                  name="password" 
+                  type={showPassword ? "text" : "password"} 
+                  placeholder="Password" 
+                  variant="outlined" 
+                  value={formData.password} 
+                  onChange={handleChange} 
+                  disabled={loading} 
+                  error={!!errors.password} 
+                  helperText={errors.password || 'Min 8 characters'} 
+                  sx={customInputStyles} 
+                  InputProps={{ 
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockOutlined sx={{ color: 'white' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={handleClickShowPassword}
+                          onMouseDown={handleMouseDownPassword}
+                          edge="end"
+                          sx={{ color: 'rgba(255,255,255,0.7)' }}
+                        >
+                          {showPassword ? <VisibilityOutlined /> : <VisibilityOffOutlined />}
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }} 
+                />
+                
+                <TextField 
+                  fullWidth 
+                  name="confirmPassword" 
+                  type={showConfirmPassword ? "text" : "password"} 
+                  placeholder="Confirm Password" 
+                  variant="outlined" 
+                  value={formData.confirmPassword} 
+                  onChange={handleChange} 
+                  disabled={loading} 
+                  error={!!errors.confirmPassword} 
+                  helperText={errors.confirmPassword} 
+                  sx={customInputStyles} 
+                  InputProps={{ 
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockOutlined sx={{ color: 'white' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle confirm password visibility"
+                          onClick={handleClickShowConfirmPassword}
+                          onMouseDown={handleMouseDownPassword}
+                          edge="end"
+                          sx={{ color: 'rgba(255,255,255,0.7)' }}
+                        >
+                          {showConfirmPassword ? <VisibilityOutlined /> : <VisibilityOffOutlined />}
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }} 
+                />
 
                 <Box sx={{ mb: 4 }}>
                   <FormControlLabel
