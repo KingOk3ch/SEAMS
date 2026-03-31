@@ -14,7 +14,7 @@ import HomeIcon from '@mui/icons-material/Home';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import { parseBackendErrors } from '../utils/errorHandler';
-import logoImage from '../assets/seamslogo.png';
+import LogoLoader from './LogoLoader';
 
 function TenantManagement() {
   const [tenants, setTenants] = useState([]);
@@ -400,26 +400,7 @@ function TenantManagement() {
 
   const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
 
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <Box
-          component="img"
-          src={logoImage}
-          alt="Loading SEAMS..."
-          sx={{
-            width: 150,
-            animation: 'pulse 1.5s infinite ease-in-out',
-            '@keyframes pulse': {
-              '0%': { transform: 'scale(0.95)', opacity: 0.7 },
-              '50%': { transform: 'scale(1.05)', opacity: 1 },
-              '100%': { transform: 'scale(0.95)', opacity: 0.7 },
-            }
-          }}
-        />
-      </Box>
-    );
-  }
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">
@@ -499,6 +480,7 @@ function TenantManagement() {
       </TableContainer>
 
       <Dialog open={openProfileDialog} onClose={() => setOpenProfileDialog(false)} maxWidth="sm" fullWidth>
+        
         <DialogTitle sx={{ borderBottom: '1px solid #eee', pb: 2, pt: 3 }}>
           {profileData && (
             <Box display="flex" alignItems="center" gap={2}>
@@ -523,6 +505,7 @@ function TenantManagement() {
             <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
           ) : (
             <Grid container spacing={4}>
+              
               <Grid item xs={12} sm={6}>
                 <Typography variant="overline" color="textSecondary" fontWeight="bold">Lease Details</Typography>
                 <Box display="flex" flexDirection="column" gap={1.5} mt={1}>

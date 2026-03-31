@@ -14,7 +14,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import CloseIcon from '@mui/icons-material/Close';
 import BuildCircleIcon from '@mui/icons-material/BuildCircle';
 import { parseBackendErrors } from '../utils/errorHandler';
-import logoImage from '../assets/seamslogo.png';
+import LogoLoader from './LogoLoader';
 
 function MaintenanceRequests() {
   // --- 1. USER ROLE & ID EXTRACTION ---
@@ -268,26 +268,7 @@ function MaintenanceRequests() {
       completedRequests;
 
   // Displays a custom animated logo to reinforce branding during initial data fetch
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <Box
-          component="img"
-          src={logoImage}
-          alt="Loading SEAMS..."
-          sx={{
-            width: 150,
-            animation: 'pulse 1.5s infinite ease-in-out',
-            '@keyframes pulse': {
-              '0%': { transform: 'scale(0.95)', opacity: 0.7 },
-              '50%': { transform: 'scale(1.05)', opacity: 1 },
-              '100%': { transform: 'scale(0.95)', opacity: 0.7 },
-            }
-          }}
-        />
-      </Box>
-    );
-  }
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">

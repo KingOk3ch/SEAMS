@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Chip, Button, CircularProgress, Grid, Card, CardContent,
+  TableHead, TableRow, Chip, Button, Grid, Card, CardContent,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tabs, Tab, Tooltip, Alert
 } from '@mui/material';
 import AddCardIcon from '@mui/icons-material/AddCard';
@@ -9,6 +9,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
 import InfoIcon from '@mui/icons-material/Info';
 import { parseBackendErrors } from '../utils/errorHandler';
+import LogoLoader from './LogoLoader';
 
 function TenantPayments() {
   const [tabIndex, setTabIndex] = useState(0);
@@ -210,7 +211,8 @@ function TenantPayments() {
       return <Chip label="Pending" color="warning" size="small" />;
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+  // Use the branded LogoLoader for the initial full-page data fetch
+  if (loading) return <LogoLoader />;
 
   return (
     <Container maxWidth="lg">

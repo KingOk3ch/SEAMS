@@ -11,9 +11,10 @@ import AddCardIcon from '@mui/icons-material/AddCard';
 import InfoIcon from '@mui/icons-material/Info';
 import ArticleIcon from '@mui/icons-material/Article';
 import EventIcon from '@mui/icons-material/Event';
-import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'; // NEW ICON
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'; 
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
+import LogoLoader from './LogoLoader';
 
 const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
 2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
@@ -38,7 +39,7 @@ function TenantDashboard() {
   const [openLeaseDialog, setOpenLeaseDialog] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   
-  // NEW: State for digital lease acceptance
+  // State for digital lease acceptance
   const [acceptingLease, setAcceptingLease] = useState(false); 
 
   const [payForm, setPayForm] = useState({
@@ -58,7 +59,7 @@ function TenantDashboard() {
       const user = JSON.parse(localStorage.getItem('user'));
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // --- 1. Fetch Tenant Profile ---
+      // Fetch Tenant Profile
       const tenantResponse = await fetch(`http://localhost:8000/api/tenants/`, { headers });
       if (!tenantResponse.ok) throw new Error("API Error");
 
@@ -91,7 +92,7 @@ function TenantDashboard() {
       // Default: set amount to rent if balance is 0
       setPayForm(prev => ({ ...prev, amount: myTenant.rent_amount || '' }));
 
-      // --- 2. Fetch Active Contract ---
+      // Fetch Active Contract
       try {
           const contractRes = await fetch(`http://localhost:8000/api/contracts/`, { headers });
           if (contractRes.ok) {
@@ -101,7 +102,7 @@ function TenantDashboard() {
           }
       } catch (e) { console.error("Could not fetch contract"); }
 
-      // --- 3. Fetch Payments ---
+      // Fetch Payments
       const paymentsResponse = await fetch(`http://localhost:8000/api/payments/`, { headers });
       let allPayments = await paymentsResponse.json();
       if (allPayments.results) allPayments = allPayments.results;
@@ -122,14 +123,14 @@ function TenantDashboard() {
 
       setPayments(myPayments);
 
-      // --- 4. Fetch Bills & Calculate Smart Balance ---
+      // Fetch Bills & Calculate Smart Balance
       const billsResponse = await fetch(`http://localhost:8000/api/bills/`, { headers });
       let allBills = await billsResponse.json();
       if (allBills.results) allBills = allBills.results;
 
       const myBills = allBills.filter(b => b.tenant === myTenant.id);
 
-      // UPDATED LOGIC: Subtract amount_paid from total bill amount
+      // Subtract amount_paid from total bill amount to get true outstanding balance
       const totalUnpaid = myBills
           .filter(b => !b.is_paid)
           .reduce((sum, b) => {
@@ -140,7 +141,7 @@ function TenantDashboard() {
 
       setOutstandingBalance(totalUnpaid);
 
-      // --- 5. Fetch Maintenance ---
+      // Fetch Maintenance
       const maintenanceResponse = await fetch(`http://localhost:8000/api/maintenance/`, { headers });
       let allMaintenance = await maintenanceResponse.json();
       if (allMaintenance.results) allMaintenance = allMaintenance.results;
@@ -158,7 +159,7 @@ function TenantDashboard() {
     setFieldErrors({});
     setError('');
 
-    // --- FRONTEND VALIDATION: REGEX ---
+    // Frontend Validation: Regex
     // If M-Pesa or Bank, ensure strict format (Alphanumeric only)
     if (['mpesa', 'bank'].includes(payForm.method)) {
         const strictRegex = /^[A-Z0-9]+$/;
@@ -208,7 +209,7 @@ function TenantDashboard() {
     }
   };
 
-  // --- NEW: Handle Digital Signature ---
+  // Handle Digital Signature
   const handleAcceptLease = async () => {
     setAcceptingLease(true);
     setError('');
@@ -221,7 +222,7 @@ function TenantDashboard() {
         });
         
         if (res.ok) {
-            // Instantly update state to unblock the dashboard
+            // Instantly update state to unblock the dashboard without full reload
             setContractData(prev => ({ ...prev, is_accepted: true }));
             setSuccess("Lease agreement accepted successfully! Welcome to SEAMS.");
         } else {
@@ -272,7 +273,8 @@ function TenantDashboard() {
       return { label: 'Active', color: 'success' };
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>;
+  // Enforces brand consistency during the initial dashboard data fetch
+  if (loading) return <LogoLoader />;
 
   if (!tenantData) {
     return <Container maxWidth="lg"><Alert severity="warning">{error || "No tenant record found."}</Alert></Container>;
@@ -316,7 +318,7 @@ function TenantDashboard() {
   return (
     <Container maxWidth="lg" sx={{ position: 'relative' }}>
         
-      {/* --- NEW: THE FORCED LEASE ACCEPTANCE BLOCKER --- */}
+      {/* THE FORCED LEASE ACCEPTANCE BLOCKER */}
       {/* This renders specifically if a contract exists but is NOT accepted yet */}
       <Dialog 
         open={Boolean(contractData && contractData.is_accepted === false)} 
@@ -374,12 +376,11 @@ function TenantDashboard() {
             </Button>
         </DialogActions>
       </Dialog>
-      {/* ------------------------------------------------ */}
 
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Typography variant="h4">My Dashboard</Typography>
         
-        {/* --- SMART PAY BUTTON --- */}
+        {/* SMART PAY BUTTON */}
         <Button
             variant="contained"
             color={outstandingBalance > 0 ? "error" : "success"} // Red if balance due, else Green
