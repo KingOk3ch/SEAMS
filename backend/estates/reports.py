@@ -202,3 +202,93 @@ class ReportsViewSet(viewsets.ViewSet):
             
         except Tenant.DoesNotExist:
             return Response({'error': 'Tenant not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Dynamically builds a query based on provided filter parameters for granular financial audits
+    @action(detail=False, methods=['get'])
+    def transactions(self, request):
+        queryset = Payment.objects.all()
+        
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        tenant_id = request.query_params.get('tenant_id')
+        payment_type = request.query_params.get('payment_type')
+        status_param = request.query_params.get('status')
+
+        if start_date:
+            queryset = queryset.filter(payment_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(payment_date__lte=end_date)
+        if tenant_id:
+            queryset = queryset.filter(tenant_id=tenant_id)
+        if payment_type:
+            queryset = queryset.filter(payment_type=payment_type)
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+
+        data = []
+        for p in queryset.select_related('tenant__user', 'tenant__house').order_by('-payment_date'):
+            data.append({
+                'id': p.id,
+                'date': p.payment_date.strftime('%Y-%m-%d'),
+                'tenant': f"{p.tenant.user.first_name} {p.tenant.user.last_name}" if p.tenant and p.tenant.user else 'N/A',
+                'house': p.tenant.house.house_number if p.tenant and p.tenant.house else 'N/A',
+                'amount': float(p.amount),
+                'type': p.payment_type,
+                'method': p.payment_method,
+                'reference': p.reference_number,
+                'status': p.status or ('verified' if p.is_verified else 'pending')
+            })
+        return Response(data)
+
+    # Filters maintenance logs by date, category, status, and personnel specializations to support administrative audits
+    @action(detail=False, methods=['get'])
+    def maintenance_logs(self, request):
+        queryset = MaintenanceRequest.objects.all()
+        
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        category = request.query_params.get('category')
+        status_param = request.query_params.get('status')
+        tenant_id = request.query_params.get('tenant_id')
+        technician_id = request.query_params.get('technician_id')
+
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+        if category:
+            queryset = queryset.filter(category=category)
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+            
+        if tenant_id:
+            try:
+                # Traces the reporting tenant back to the base User model for request matching
+                tenant = Tenant.objects.get(id=tenant_id)
+                queryset = queryset.filter(reported_by=tenant.user)
+            except Tenant.DoesNotExist:
+                pass
+                
+        if technician_id:
+            queryset = queryset.filter(assigned_to_id=technician_id)
+
+        data = []
+        for m in queryset.select_related('house', 'assigned_to').order_by('-created_at'):
+            # Enriches the report by appending specialization to the technician's name
+            tech_name = 'Unassigned'
+            if m.assigned_to:
+                specialty = getattr(m.assigned_to, 'specialization', 'General')
+                tech_name = f"{m.assigned_to.first_name} {m.assigned_to.last_name} ({specialty.capitalize()})"
+
+            data.append({
+                'id': m.id,
+                'date': m.created_at.strftime('%Y-%m-%d'),
+                'house': m.house.house_number if m.house else m.house_number,
+                'issue': m.issue_description,
+                'category': m.category,
+                'priority': m.priority,
+                'status': m.status,
+                'technician': tech_name,
+                'cost': float(m.actual_cost or m.estimated_cost or 0)
+            })
+        return Response(data)
