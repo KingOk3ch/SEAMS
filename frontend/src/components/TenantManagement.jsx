@@ -3,7 +3,7 @@ import {
   Container, Typography, Box, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, CircularProgress, Alert, Button, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, IconButton, Tabs, Tab,
-  Divider, Grid
+  Divider, Grid, Avatar
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -12,6 +12,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import HomeIcon from '@mui/icons-material/Home';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import { parseBackendErrors } from '../utils/errorHandler';
 import logoImage from '../assets/seamslogo.png';
 
@@ -20,9 +21,7 @@ function TenantManagement() {
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Tracks the active state for tenant creation to prevent double submission
   const [submitLoading, setSubmitLoading] = useState(false);
-  // Tracks the active state for house assignment to secure the transaction
   const [assignLoading, setAssignLoading] = useState(false);
 
   const [error, setError] = useState('');
@@ -35,6 +34,13 @@ function TenantManagement() {
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentTenant, setCurrentTenant] = useState(null);
+
+  const [openProfileDialog, setOpenProfileDialog] = useState(false);
+  const [profileData, setProfileData] = useState(null);
+  const [profileBills, setProfileBills] = useState([]);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [remindLoading, setRemindLoading] = useState(false);
+  const [customMessage, setCustomMessage] = useState('');
 
   const [formData, setFormData] = useState({
     username: '', email: '',
@@ -84,6 +90,62 @@ function TenantManagement() {
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+  };
+
+  // Retrieves the selected tenant's financial ledger by filtering out paid bills.
+  // This ensures the admin sees an accurate, real-time reflection of outstanding debt.
+  const handleOpenProfile = async (tenant) => {
+    setProfileData(tenant);
+    setProfileLoading(true);
+    setOpenProfileDialog(true);
+    setCustomMessage('');
+    setError('');
+    setSuccess('');
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch('http://localhost:8000/api/bills/', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      let data = await res.json();
+      if(data.results) data = data.results;
+      
+      const tBills = data.filter(b => b.tenant === tenant.id && !b.is_paid);
+      setProfileBills(tBills);
+    } catch (err) {
+      console.error("Failed to fetch tenant ledger:", err);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  // Dispatches a notification to the tenant's dashboard. 
+  // It passes the custom message if provided; otherwise, the backend defaults to calculating the financial debt.
+  const handleSendReminder = async () => {
+    setRemindLoading(true);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`http://localhost:8000/api/tenants/${profileData.id}/remind_debtor/`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: customMessage })
+      });
+      
+      const data = await res.json();
+      if(res.ok) {
+        setSuccess(data.message || 'Notification sent successfully!');
+        setOpenProfileDialog(false);
+      } else {
+        setError(data.message || 'Failed to send notification.');
+      }
+    } catch (err) {
+      setError('Network error occurred while trying to send notification.');
+    } finally {
+      setRemindLoading(false);
+    }
   };
 
   const handleOpenDialog = (tenant = null) => {
@@ -231,14 +293,13 @@ function TenantManagement() {
         const userResult = await userResponse.json();
         const newUserId = userResult.user.id;
 
-        // Creates a blank tenant record with NO house assigned yet
         const tenantData = {
           user_id: newUserId, 
           house: null,
-          move_in_date: formData.move_in_date, // Pass default date so DRF doesn't complain
+          move_in_date: formData.move_in_date, 
           contract_start: formData.contract_start,
           contract_end: formData.contract_end,
-          status: 'inactive' // Set to inactive until approved
+          status: 'inactive' 
         };
 
         const tenantResponse = await fetch('http://localhost:8000/api/tenants/', {
@@ -337,7 +398,8 @@ function TenantManagement() {
     h.status === 'vacant' || (editMode && currentTenant && h.id === currentTenant.house)
   ) : [];
 
-  // Displays a custom animated logo to reinforce branding during initial data fetch
+  const formatCurrency = (amount) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(amount);
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -397,7 +459,12 @@ function TenantManagement() {
               <TableRow><TableCell colSpan={8} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No tenants found</Typography></TableCell></TableRow>
             ) : (
               displayedTenants.map((tenant) => (
-                <TableRow key={tenant.id} hover>
+                <TableRow 
+                  key={tenant.id} 
+                  hover 
+                  onClick={() => handleOpenProfile(tenant)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold">{tenant.user.first_name} {tenant.user.last_name}</Typography>
                     <Typography variant="caption" color="textSecondary">{tenant.user.email}</Typography>
@@ -411,9 +478,18 @@ function TenantManagement() {
                   <TableCell><Chip label={tenant.status.toUpperCase()} color={getStatusColor(tenant.status)} size="small" /></TableCell>
                   <TableCell>{tenant.user.email_verified ? <CheckCircleIcon color="success" fontSize="small" /> : <CancelIcon color="disabled" fontSize="small" />}</TableCell>
                   <TableCell>
-                    <IconButton size="small" color="primary" onClick={() => handleOpenDialog(tenant)}><EditIcon /></IconButton>
-                    {!tenant.house_number && <IconButton size="small" color="success" onClick={() => handleOpenAssignDialog(tenant)}><HomeIcon /></IconButton>}
-                    <IconButton size="small" color="error" onClick={() => handleDelete(tenant.id)}><DeleteIcon /></IconButton>
+                    {/* e.stopPropagation() prevents the row's profile dialog from opening when interacting with these action buttons */}
+                    <IconButton size="small" color="primary" onClick={(e) => { e.stopPropagation(); handleOpenDialog(tenant); }} title="Edit Tenant">
+                      <EditIcon />
+                    </IconButton>
+                    {!tenant.house_number && (
+                      <IconButton size="small" color="success" onClick={(e) => { e.stopPropagation(); handleOpenAssignDialog(tenant); }} title="Assign House">
+                        <HomeIcon />
+                      </IconButton>
+                    )}
+                    <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); handleDelete(tenant.id); }} title="Delete Tenant">
+                      <DeleteIcon />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
               ))
@@ -421,6 +497,108 @@ function TenantManagement() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={openProfileDialog} onClose={() => setOpenProfileDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid #eee', pb: 2, pt: 3 }}>
+          {profileData && (
+            <Box display="flex" alignItems="center" gap={2}>
+              <Avatar sx={{ width: 64, height: 64, bgcolor: 'primary.main', fontSize: '1.5rem' }}>
+                {profileData.user.first_name[0]}{profileData.user.last_name[0]}
+              </Avatar>
+              <Box flexGrow={1}>
+                <Typography variant="h6" fontWeight="bold" lineHeight={1.2}>
+                  {profileData.user.first_name} {profileData.user.last_name}
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  {profileData.user.email}
+                </Typography>
+              </Box>
+              <Chip label={profileData.status.toUpperCase()} color={getStatusColor(profileData.status)} />
+            </Box>
+          )}
+        </DialogTitle>
+
+        <DialogContent sx={{ mt: 2, p: 3 }}>
+          {profileLoading || !profileData ? (
+            <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
+          ) : (
+            <Grid container spacing={4}>
+              <Grid item xs={12} sm={6}>
+                <Typography variant="overline" color="textSecondary" fontWeight="bold">Lease Details</Typography>
+                <Box display="flex" flexDirection="column" gap={1.5} mt={1}>
+                  <Typography variant="body2"><strong>Phone:</strong> {profileData.user.phone || 'N/A'}</Typography>
+                  <Typography variant="body2"><strong>ID:</strong> {profileData.user.id_number || 'N/A'}</Typography>
+                  <Typography variant="body2"><strong>House:</strong> {profileData.house_number || 'Not Assigned'}</Typography>
+                  <Typography variant="body2"><strong>Move-in:</strong> {profileData.move_in_date ? new Date(profileData.move_in_date).toLocaleDateString() : 'N/A'}</Typography>
+                  <Typography variant="body2"><strong>Lease Ends:</strong> {profileData.contract_end ? new Date(profileData.contract_end).toLocaleDateString() : 'N/A'}</Typography>
+                </Box>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Typography variant="overline" color="textSecondary" fontWeight="bold">Financials</Typography>
+                <Box 
+                  sx={{ 
+                    mt: 1, 
+                    p: 2, 
+                    borderRadius: 2, 
+                    bgcolor: profileBills.length > 0 ? '#ffebee' : '#e8f5e9',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '130px'
+                  }}
+                >
+                  <Typography variant="body2" color="textSecondary" gutterBottom>Outstanding Balance</Typography>
+                  {profileBills.length === 0 ? (
+                    <Typography variant="h4" color="success.main" fontWeight="bold">KES 0.00</Typography>
+                  ) : (
+                    <>
+                      <Typography variant="h4" color="error.main" fontWeight="bold">
+                        {/* Iterates through all unpaid bills and aggregates the remaining balances specifically */}
+                        {formatCurrency(profileBills.reduce((sum, b) => sum + (parseFloat(b.amount) - parseFloat(b.amount_paid || 0)), 0))}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">Across {profileBills.length} unpaid bill(s)</Typography>
+                    </>
+                  )}
+                </Box>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Divider sx={{ mb: 3 }} />
+                <TextField
+                  label="Custom Notification Message (Optional)"
+                  multiline
+                  rows={2}
+                  fullWidth
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  placeholder="Type a custom message, or leave blank to send the financial reminder."
+                  variant="outlined"
+                  sx={{ 
+                    '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                    bgcolor: '#f8f9fa' 
+                  }}
+                />
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 3, pt: 0 }}>
+          <Button onClick={() => setOpenProfileDialog(false)} color="inherit">Close</Button>
+          <Button 
+            variant="contained" 
+            color="warning" 
+            startIcon={<NotificationsActiveIcon />}
+            onClick={handleSendReminder}
+            disabled={remindLoading || (profileBills.length === 0 && customMessage.trim() === '')}
+            sx={{ borderRadius: 2 }}
+          >
+            {remindLoading ? "Sending..." : (customMessage.trim() ? "Send Custom Note" : "Send Reminder Ping")}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>{editMode ? 'Edit Tenant' : 'Add New Tenant'}</DialogTitle>
@@ -461,7 +639,6 @@ function TenantManagement() {
                 helperText={fieldErrors.id_number} 
             />
 
-            {/* ONLY RENDER THIS SECTION IF EDIT MODE IS ACTIVE */}
             {editMode && (
                 <>
                     <Divider sx={{ my: 1 }} />

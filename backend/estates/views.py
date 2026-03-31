@@ -16,7 +16,6 @@ from users.permissions import IsEstateAdminOrReadOnly
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
     serializer_class = HouseSerializer
-    # LOCK: Only Admins can create/edit/delete. Tenants can only View (GET).
     permission_classes = [IsEstateAdminOrReadOnly] 
 
     @action(detail=False, methods=['get'])
@@ -76,11 +75,37 @@ class TenantViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(expiring_tenants, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsEstateAdminOrReadOnly])
+    def remind_debtor(self, request, pk=None):
+        tenant = self.get_object()
+        custom_message = request.data.get('message', '').strip()
+        
+        if custom_message:
+            Notification.objects.create(
+                recipient=tenant.user,
+                message=custom_message,
+                link='/tenant-payments'
+            )
+            return Response({'message': 'Custom notification sent successfully.'}, status=status.HTTP_200_OK)
+        else:
+            unpaid_bills = Bill.objects.filter(tenant=tenant, is_paid=False)
+            total_due = sum((b.amount - b.amount_paid) for b in unpaid_bills)
+            
+            if total_due <= 0:
+                return Response({'message': 'This tenant has no outstanding balance and no custom message was provided.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            Notification.objects.create(
+                recipient=tenant.user,
+                message=f"REMINDER: You have an outstanding balance of KES {total_due}. Please clear your dues at your earliest convenience.",
+                link='/tenant-payments'
+            )
+            
+            return Response({'message': f'Financial reminder sent successfully for KES {total_due}.'}, status=status.HTTP_200_OK)
+
 
 class ContractViewSet(viewsets.ModelViewSet):
     queryset = Contract.objects.all()
     serializer_class = ContractSerializer
-    # Allow tenants to view and accept their contracts
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
@@ -89,12 +114,10 @@ class ContractViewSet(viewsets.ModelViewSet):
             return Contract.objects.filter(tenant__user=user)
         return Contract.objects.all()
 
-    # Digital signature endpoint
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):
         contract = self.get_object()
         
-        # Security: ensure only the assigned tenant can accept it
         if getattr(request.user, 'role', None) == 'tenant':
             if contract.tenant.user != request.user:
                 return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
@@ -139,16 +162,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
         user = self.request.user
         tenant_name = "Unknown"
         
-        # ADMIN MANUAL ENTRY FIX
         if getattr(user, 'role', None) == 'estate_admin':
             tenant_obj = serializer.validated_data.get('tenant')
             
             if tenant_obj:
-                # Get name for archive
                 if tenant_obj.user:
                     tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
                 
-                # CRITICAL: Explicitly save the tenant relationship so it appears on their dash
                 serializer.save(
                     is_verified=True, 
                     status='verified', 
@@ -156,7 +176,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     tenant=tenant_obj 
                 )
             else:
-                # Fallback if no tenant selected (rare)
                 serializer.save(is_verified=True, status='verified', archived_tenant_name=tenant_name)
             
         elif getattr(user, 'role', None) == 'tenant':
@@ -165,7 +184,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 if tenant_profile.user:
                     tenant_name = tenant_profile.user.get_full_name() or tenant_profile.user.username
                 
-                # Tenant payments are pending by default
                 serializer.save(is_verified=False, status='pending', tenant=tenant_profile, archived_tenant_name=tenant_name)
             except Tenant.DoesNotExist:
                 raise IntegrityError("No Tenant Profile found for this user.")
@@ -173,7 +191,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(is_verified=False, status='pending', archived_tenant_name=tenant_name)
 
-    # SMART VERIFICATION LOGIC
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         if getattr(request.user, 'role', None) != 'estate_admin':
@@ -181,7 +198,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
             
         payment = self.get_object()
         
-        # 1. Idempotency Check
         if payment.status == 'verified':
              return Response({'status': 'warning', 'message': 'Payment was already verified'})
 
@@ -191,8 +207,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
             payment.rejection_reason = None
             payment.save()
 
-            # 2. Smart Allocation Logic
-            # Find ALL unpaid bills of the SAME type (e.g. Water pays Water), ordered by Oldest First
             matching_bills = Bill.objects.filter(
                 tenant=payment.tenant,
                 bill_type=payment.payment_type,
@@ -206,23 +220,15 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 if remaining_credit <= 0:
                     break
                 
-                # Calculate what this bill needs
-                # Ensure we use Decimals for safety
                 bill_balance = bill.amount - bill.amount_paid
-                
-                # Pay what we can (either full balance or remaining credit)
                 amount_to_pay = min(remaining_credit, bill_balance)
-                
-                # Update Bill
                 bill.amount_paid += amount_to_pay
                 
-                # Check if fully paid
                 if bill.amount_paid >= bill.amount:
                     bill.is_paid = True
                 
                 bill.save()
                 
-                # Deduct from wallet
                 remaining_credit -= amount_to_pay
                 bills_updated_count += 1
             
@@ -245,7 +251,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment.rejection_reason = reason
         payment.save()
         
-        # PING THE TENANT
         if payment.tenant and payment.tenant.user:
             Notification.objects.create(
                 recipient=payment.tenant.user,
@@ -259,7 +264,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
 class BillViewSet(viewsets.ModelViewSet):
     queryset = Bill.objects.all()
     serializer_class = BillSerializer
-    # LOCK: Only Admins create bills. Tenants view only.
     permission_classes = [IsEstateAdminOrReadOnly] 
     
     def get_queryset(self):
@@ -290,7 +294,6 @@ class BillViewSet(viewsets.ModelViewSet):
         serializer.save(archived_tenant_name=tenant_name)
 
 
-# PRO DASHBOARD ANALYTICS ENGINE
 class DashboardStatsView(APIView):
     """
     Calculates all the heavy dashboard metrics directly on the database.
@@ -299,7 +302,6 @@ class DashboardStatsView(APIView):
     permission_classes = [IsEstateAdminOrReadOnly]
 
     def get(self, request):
-        # Local imports prevent circular dependency headaches
         from django.contrib.auth import get_user_model
         from maintenance.models import MaintenanceRequest
         from maintenance.serializers import MaintenanceRequestSerializer
@@ -307,30 +309,24 @@ class DashboardStatsView(APIView):
 
         User = get_user_model()
 
-        # 1. House Stats
         total_houses = House.objects.count()
         occupied_houses = House.objects.filter(status='occupied').count()
         vacant_houses_qs = House.objects.filter(status='vacant')
         
-        # 2. Tenant Stats
         total_tenants = Tenant.objects.count()
         
-        # 3. User Approvals
         pending_users_qs = User.objects.filter(approval_status='pending', role='tenant')
         
-        # 4. Maintenance Stats
         active_requests_qs = MaintenanceRequest.objects.filter(
             status__in=['new', 'pending', 'assigned', 'in_progress']
         ).order_by('-created_at')
         
-        # 5. Financial Stats (Summing up the verified payments at DB level)
         revenue_data = Payment.objects.filter(
             Q(status='verified') | Q(is_verified=True)
         ).aggregate(total=Sum('amount'))
         
         total_revenue = revenue_data['total'] or Decimal('0.00')
 
-        # Package it all nicely so the Frontend does zero math
         return Response({
             "stats": {
                 "totalHouses": total_houses,
@@ -341,7 +337,6 @@ class DashboardStatsView(APIView):
                 "activeMaintenanceRequests": active_requests_qs.count(),
                 "totalRevenue": total_revenue
             },
-            # We instantly serialize the lists the dashboard needs
             "vacantHouses": HouseSerializer(vacant_houses_qs, many=True).data,
             "pendingUsers": UserSerializer(pending_users_qs, many=True).data,
             "maintenanceRequests": MaintenanceRequestSerializer(active_requests_qs[:5], many=True).data
