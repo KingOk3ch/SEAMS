@@ -159,35 +159,66 @@ function TenantPayments() {
     setError('');
     try {
         const token = localStorage.getItem('access_token');
-        const paymentData = {
-            tenant: tenantData.id,
-            amount: payForm.amount,
-            payment_method: payForm.method,
-            payment_type: payForm.payment_type,
-            reference_number: payForm.reference || `REF-${Date.now()}`,
-            payment_date: payForm.payment_date,
-            month_for: new Date().toISOString().split('T')[0]
-        };
-
-        const res = await fetch('http://localhost:8000/api/payments/', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(paymentData)
-        });
-
-        if (res.ok) {
-            setSuccess('Payment Recorded! Waiting for Admin Verification.');
-            setError('');
-            setOpenPayDialog(false);
-            fetchData();
+        
+        if (payForm.method === 'mpesa') {
+            const mpesaData = {
+                amount: payForm.amount,
+                phone_number: payForm.phone,
+                payment_type: payForm.payment_type,
+                month_for: payForm.payment_date
+            };
+            
+            const res = await fetch('http://localhost:8000/api/payments/mpesa/stk-push/', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(mpesaData)
+            });
+            
+            if (res.ok) {
+                setSuccess('STK Push initiated! Please check your phone to enter your M-Pesa PIN.');
+                setError('');
+                setOpenPayDialog(false);
+                setTimeout(() => fetchData(), 5000); // Give user a moment
+            } else {
+                const errorData = await res.json();
+                const { global, fields } = parseBackendErrors(errorData);
+                setError(global || errorData.error || 'Failed to initiate STK push. Check your phone number.');
+                setFieldErrors(fields || {});
+            }
         } else {
-            const errorData = await res.json();
-            const { global, fields } = parseBackendErrors(errorData);
-            setError(global || 'Failed to record payment. Please check the form.');
-            setFieldErrors(fields);
+            const paymentData = {
+                tenant: tenantData.id,
+                amount: payForm.amount,
+                payment_method: payForm.method,
+                payment_type: payForm.payment_type,
+                reference_number: payForm.reference || `REF-${Date.now()}`,
+                payment_date: payForm.payment_date,
+                month_for: payForm.payment_date
+            };
+
+            const res = await fetch('http://localhost:8000/api/payments/', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(paymentData)
+            });
+
+            if (res.ok) {
+                setSuccess('Payment Recorded! Waiting for Admin Verification.');
+                setError('');
+                setOpenPayDialog(false);
+                fetchData();
+            } else {
+                const errorData = await res.json();
+                const { global, fields } = parseBackendErrors(errorData);
+                setError(global || 'Failed to record payment. Please check the form.');
+                setFieldErrors(fields);
+            }
         }
     } catch (err) {
         setError('Network error occurred');
@@ -387,20 +418,32 @@ function TenantPayments() {
                     error={!!fieldErrors.method}
                     helperText={fieldErrors.method}
                 >
-                    <MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
+                    <MenuItem value="mpesa">M-Pesa (STK Push)</MenuItem>
                     <MenuItem value="bank">Bank Transfer</MenuItem>
                     <MenuItem value="cash">Cash</MenuItem>
                 </TextField>
 
-                <TextField
-                    label="Transaction Ref (Last 4 Digits)"
-                    value={payForm.reference}
-                    onChange={(e) => handlePayFormChange('reference', e.target.value)}
-                    fullWidth
-                    inputProps={{ maxLength: 4 }}
-                    helperText={fieldErrors.reference || "Enter only the last 4 characters"}
-                    error={!!fieldErrors.reference}
-                />
+                {payForm.method === 'mpesa' ? (
+                    <TextField
+                        label="Safaricom Phone Number"
+                        placeholder="e.g. 254712345678"
+                        value={payForm.phone}
+                        onChange={(e) => handlePayFormChange('phone', e.target.value)}
+                        fullWidth
+                        helperText={fieldErrors.phone || "Enter your Safaricom number format (2547...)"}
+                        error={!!fieldErrors.phone}
+                    />
+                ) : (
+                    <TextField
+                        label="Transaction Ref (Last 4 Digits)"
+                        value={payForm.reference}
+                        onChange={(e) => handlePayFormChange('reference', e.target.value)}
+                        fullWidth
+                        inputProps={{ maxLength: 4 }}
+                        helperText={fieldErrors.reference || "Enter only the last 4 characters"}
+                        error={!!fieldErrors.reference}
+                    />
+                )}
             </Box>
         </DialogContent>
         <DialogActions>

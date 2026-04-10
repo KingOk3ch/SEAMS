@@ -12,6 +12,11 @@ from .models import House, Tenant, Contract, Payment, Bill
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
 from users.models import Notification
 from users.permissions import IsEstateAdminOrReadOnly
+from rest_framework.permissions import AllowAny
+from .mpesa import initiate_stk_push
+import logging
+
+logger = logging.getLogger(__name__)
 
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
@@ -292,6 +297,126 @@ class BillViewSet(viewsets.ModelViewSet):
             tenant_name = tenant_obj.user.get_full_name() or tenant_obj.user.username
             
         serializer.save(archived_tenant_name=tenant_name)
+
+
+class MpesaSTKPushView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        user = request.user
+        amount = request.data.get('amount')
+        phone_number = request.data.get('phone_number')
+        payment_type = request.data.get('payment_type', 'rent')
+        month_for = request.data.get('month_for', timezone.now().date().isoformat())
+        
+        if not amount or not phone_number:
+            return Response({"error": "amount and phone_number are required."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            tenant_profile = Tenant.objects.get(user=user)
+        except Tenant.DoesNotExist:
+            return Response({"error": "Tenant profile not found."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Initiate STK push
+        ref = f"{payment_type.upper()}-{tenant_profile.house.house_number if tenant_profile.house else 'NA'}"
+        
+        stk_response = initiate_stk_push(phone_number, str(amount), ref, "SEAMS Payment")
+        
+        if "error" in stk_response:
+            return Response(stk_response, status=status.HTTP_400_BAD_REQUEST)
+            
+        # stk_response typically has CheckoutRequestID and ResponseCode="0" if successful
+        checkout_request_id = stk_response.get('CheckoutRequestID')
+        
+        if not checkout_request_id:
+            return Response({"error": "Invalid response from Safaricom", "details": stk_response}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Create a pending payment tracking the CheckoutRequestID
+        Payment.objects.create(
+            tenant=tenant_profile,
+            amount=amount,
+            payment_date=timezone.now().date(),
+            payment_method='mpesa',
+            payment_type=payment_type,
+            reference_number=checkout_request_id, # Temporary until callback replaces it
+            month_for=month_for,
+            is_verified=False,
+            status='pending',
+            archived_tenant_name=user.get_full_name() or user.username
+        )
+        
+        return Response({"message": "STK Push initiated successfully. Please enter PIN on your phone.", "CheckoutRequestID": checkout_request_id})
+
+
+class MpesaCallbackView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        # M-Pesa sends callback inside Body.stkCallback
+        try:
+            data = request.data.get('Body', {}).get('stkCallback', {})
+            result_code = data.get('ResultCode')
+            checkout_request_id = data.get('CheckoutRequestID')
+            
+            if not checkout_request_id:
+                return Response({"ResultDesc": "Validation error"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # If ResultCode is 0, the transaction was verified
+            if result_code == 0:
+                callback_items = data.get('CallbackMetadata', {}).get('Item', [])
+                receipt_number = ""
+                # phone = ""
+                for item in callback_items:
+                    if item.get('Name') == 'MpesaReceiptNumber':
+                        receipt_number = item.get('Value')
+                
+                # Update Payment record
+                try:
+                    payment = Payment.objects.get(reference_number=checkout_request_id)
+                    with transaction.atomic():
+                        payment.reference_number = receipt_number
+                        payment.is_verified = True
+                        payment.status = 'verified'
+                        payment.save()
+                        
+                        # Auto-allocate to bills
+                        matching_bills = Bill.objects.filter(
+                            tenant=payment.tenant,
+                            bill_type=payment.payment_type,
+                            is_paid=False
+                        ).order_by('month_for')
+                        
+                        remaining_credit = payment.amount
+                        for bill in matching_bills:
+                            if remaining_credit <= 0:
+                                break
+                            
+                            bill_balance = bill.amount - bill.amount_paid
+                            amount_to_pay = min(remaining_credit, bill_balance)
+                            bill.amount_paid += amount_to_pay
+                            
+                            if bill.amount_paid >= bill.amount:
+                                bill.is_paid = True
+                            
+                            bill.save()
+                            remaining_credit -= amount_to_pay
+                            
+                except Payment.DoesNotExist:
+                    logger.error(f"Callback received for unknown CheckoutRequestID: {checkout_request_id}")
+            else:
+                # Mark as rejected/failed
+                try:
+                    payment = Payment.objects.get(reference_number=checkout_request_id)
+                    payment.status = 'rejected'
+                    payment.rejection_reason = data.get('ResultDesc', 'M-Pesa push failed or cancelled by user')
+                    payment.save()
+                except Payment.DoesNotExist:
+                    pass
+                    
+            return Response({"ResultCode": 0, "ResultDesc": "Accepted"})
+        except Exception as e:
+            logger.error(f"Mpesa callback error: {e}")
+            return Response({"ResultCode": 1, "ResultDesc": "Internal error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class DashboardStatsView(APIView):
