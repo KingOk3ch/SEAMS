@@ -8,7 +8,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from users.views import UserViewSet, tenant_register, verify_email, NotificationViewSet
 from estates.views import (
     HouseViewSet, TenantViewSet, ContractViewSet, 
-    PaymentViewSet, BillViewSet, DashboardStatsView # <--- NEW IMPORT
+    PaymentViewSet, BillViewSet, DashboardStatsView,
+    MpesaSTKPushView, MpesaCallbackView
 )
 from estates.reports import ReportsViewSet
 from maintenance.views import MaintenanceRequestViewSet, MaintenanceImageViewSet
@@ -33,6 +34,10 @@ urlpatterns = [
     path('api/auth/register/tenant/', tenant_register, name='tenant-register'),
     path('api/auth/verify-email/', verify_email, name='verify-email'),
     path("api-auth/", include("rest_framework.urls")),
+    # M-Pesa endpoints
+    path('api/payments/mpesa/stk-push/', MpesaSTKPushView.as_view(), name='mpesa-stk-push'),
+    path('api/payments/mpesa/callback/', MpesaCallbackView.as_view(), name='mpesa-callback'),
+    
     # PRO ANALYTICS ENDPOINT ---
     path('api/dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
 ]
