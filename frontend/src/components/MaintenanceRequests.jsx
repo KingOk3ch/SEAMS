@@ -41,12 +41,12 @@ function MaintenanceRequests() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
-  
   const [fieldErrors, setFieldErrors] = useState({});
   const [openDialog, setOpenDialog] = useState(false);
   const [openAssignDialog, setOpenAssignDialog] = useState(false);
   const [openImageDialog, setOpenImageDialog] = useState(false);
   const [selectedImage, setSelectedImage] = useState('');
+  const [selectedImageContext, setSelectedImageContext] = useState({ id: '', category: '' });
   const [editMode, setEditMode] = useState(false);
   const [currentRequest, setCurrentRequest] = useState(null);
   const [selectedImages, setSelectedImages] = useState([]);
@@ -91,9 +91,7 @@ function MaintenanceRequests() {
       if (isTenant) {
         requestsData = requestsData.filter(r => getId(r.reported_by) === userId);
       }
-      
       if (isTechnician) {
-        // Strict filter: Only show requests assigned to this user
         requestsData = requestsData.filter(r => getId(r.assigned_to) === userId);
       }
 
@@ -120,9 +118,8 @@ function MaintenanceRequests() {
 
   // --- HANDLERS ---
   const handleOpenDialog = (request = null) => {
-    if (isTechnician) return; // Techs blocked
+    if (isTechnician) return;
     setFieldErrors({}); setError(''); setSuccess(''); setSelectedImages([]);
-    
     if (request) {
       setEditMode(true);
       setCurrentRequest(request);
@@ -171,7 +168,6 @@ function MaintenanceRequests() {
     try {
       const token = localStorage.getItem('access_token');
       const url = `http://localhost:8000/api/maintenance/${currentRequest.id}/`;
-      
       const payload = {
         status: assignData.status,
         priority: assignData.priority,
@@ -237,7 +233,17 @@ function MaintenanceRequests() {
 
   const handleImageSelect = (e) => setSelectedImages(prev => [...prev, ...Array.from(e.target.files)]);
   const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' })); };
-  const handleViewImage = (url) => { setSelectedImage(url.startsWith('http') ? url : `http://localhost:8000${url}`); setOpenImageDialog(true); };
+  
+  const handleViewImage = (url, req = null) => { 
+    setSelectedImage(url.startsWith('http') ? url : `http://localhost:8000${url}`); 
+    if (req) {
+      setSelectedImageContext({ id: req.request_id || req.id, category: req.category });
+    } else if (currentRequest) {
+      setSelectedImageContext({ id: currentRequest.request_id || currentRequest.id, category: currentRequest.category });
+    }
+    setOpenImageDialog(true); 
+  };
+
   const getCompatibleTechnicians = (cat) => technicians.filter(t => (t.specialization || 'general') === (cat || 'general') || t.specialization === 'general');
 
   // UI Helpers
@@ -250,15 +256,13 @@ function MaintenanceRequests() {
   const activeRequests = requests.filter(r => ['pending', 'assigned', 'in_progress'].includes(r.status));
   const completedRequests = requests.filter(r => r.status === 'completed');
 
-  // Decide what to show in the "Inbox" tab (Tab Index 1)
   let inboxList = [];
   if (isTechnician) {
-      inboxList = assignedRequests; // Fix: Technicians see 'assigned' items here
+      inboxList = assignedRequests;
   } else {
-      inboxList = newRequests; // Admins see 'new' items here
+      inboxList = newRequests;
   }
 
-  // Badge Logic
   const badgeCount = inboxList.length;
 
   const displayedRequests = 
@@ -267,7 +271,6 @@ function MaintenanceRequests() {
       tabValue === 2 ? activeRequests : 
       completedRequests;
 
-  // Displays a custom animated logo to reinforce branding during initial data fetch
   if (loading) return <LogoLoader />;
 
   return (
@@ -316,7 +319,7 @@ function MaintenanceRequests() {
                   <TableCell><Chip label={req.priority.toUpperCase()} color={getPriorityColor(req.priority)} size="small" /></TableCell>
                   <TableCell><Chip label={req.status.replace('_',' ').toUpperCase()} color={getStatusColor(req.status)} size="small" /></TableCell>
                   <TableCell>{req.assigned_to_name || 'Unassigned'}</TableCell>
-                  <TableCell>{req.images?.length > 0 ? <IconButton size="small" color="primary" onClick={() => handleViewImage(req.images[0].image)}><ImageIcon /></IconButton> : '-'}</TableCell>
+                  <TableCell>{req.images?.length > 0 ? <IconButton size="small" color="primary" onClick={() => handleViewImage(req.images[0].image, req)}><ImageIcon /></IconButton> : '-'}</TableCell>
                   <TableCell>
                     <Box display="flex">
                       {(isAdmin || isTechnician) && (
@@ -345,17 +348,13 @@ function MaintenanceRequests() {
             <Alert severity="info" icon={<BuildCircleIcon />}>
                 {editMode ? 'Update request details below' : 'Report a new maintenance issue'}
             </Alert>
-
             <TextField select label="House" name="house" value={formData.house} onChange={handleInputChange} fullWidth required disabled={isTenant} error={!!fieldErrors.house} helperText={fieldErrors.house}>
                 {houses.map(h => <MenuItem key={h.id} value={h.id}>{h.house_number}</MenuItem>)}
             </TextField>
-            
             <TextField select label="Category" name="category" value={formData.category} onChange={handleInputChange} fullWidth required>
                 {['plumbing','electrical','structural','pest_control','general'].map(c => <MenuItem key={c} value={c}>{c.toUpperCase()}</MenuItem>)}
             </TextField>
-            
             <TextField label="Description" name="issue_description" value={formData.issue_description} onChange={handleInputChange} multiline rows={4} fullWidth placeholder="Describe the problem..." />
-
             {!isTenant && (
                 <>
                     <Divider>Admin Options</Divider>
@@ -367,7 +366,6 @@ function MaintenanceRequests() {
                     </TextField>
                 </>
             )}
-
             {isAdmin && (
                 <>
                     <TextField select label="Assign Technician" name="technician" value={formData.technician} onChange={handleInputChange} fullWidth>
@@ -377,12 +375,10 @@ function MaintenanceRequests() {
                     <TextField label="Estimated Cost (KES)" name="estimated_cost" type="number" value={formData.estimated_cost} onChange={handleInputChange} fullWidth />
                 </>
             )}
-
             <Button variant="outlined" component="label" fullWidth startIcon={<PhotoCamera />}>
                 {selectedImages.length > 0 ? `Add More (${selectedImages.length})` : 'Upload Images'}
                 <input type="file" hidden multiple accept="image/*" onChange={handleImageSelect} />
             </Button>
-
             {((editMode && currentRequest?.images?.length > 0) || selectedImages.length > 0) && (
                 <Box>
                     <Typography variant="caption" color="text.secondary">Attached Images:</Typography>
@@ -416,7 +412,6 @@ function MaintenanceRequests() {
                 <Alert severity="info" icon={<AssignmentIcon />}>
                     Update Status, Cost & Priority
                 </Alert>
-                
                 {isAdmin && (
                     <TextField select label="Technician" value={assignData.technician} onChange={(e) => setAssignData({...assignData, technician: e.target.value})} fullWidth>
                         <MenuItem value="">Unassigned</MenuItem>
@@ -424,7 +419,6 @@ function MaintenanceRequests() {
                          getCompatibleTechnicians(assignData.category).map(t => <MenuItem key={t.id} value={t.id}>{t.first_name} {t.last_name}</MenuItem>)}
                     </TextField>
                 )}
-
                 <TextField label="Estimated Cost (KES)" type="number" value={assignData.estimated_cost} onChange={(e) => setAssignData({...assignData, estimated_cost: e.target.value})} fullWidth />
                 <TextField select label="Priority" value={assignData.priority} onChange={(e) => setAssignData({...assignData, priority: e.target.value})} fullWidth>
                     <MenuItem value="low">Low</MenuItem><MenuItem value="medium">Medium</MenuItem><MenuItem value="high">High</MenuItem>
@@ -440,16 +434,38 @@ function MaintenanceRequests() {
         </DialogActions>
       </Dialog>
 
-      {/* --- SIMPLE IMAGE VIEWER --- */}
-      <Dialog open={openImageDialog} onClose={() => setOpenImageDialog(false)} maxWidth="md">
-        <Box position="relative">
-            <IconButton onClick={() => setOpenImageDialog(false)} sx={{ position: 'absolute', right: 5, top: 5, bgcolor: 'rgba(255,255,255,0.7)' }}>
-                <CloseIcon />
-            </IconButton>
-            <img src={selectedImage} alt="Full View" style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
+      {/* --- PROFESSIONAL MAINTENANCE AUDIT LIGHTBOX --- */}
+      <Dialog 
+        open={openImageDialog} 
+        onClose={() => setOpenImageDialog(false)} 
+        maxWidth="lg" 
+        fullWidth
+      >
+        <Box position="relative" sx={{ bgcolor: 'common.white' }}>
+            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
+                <Box>
+                    <Typography variant="h6">Job Assessment: {selectedImageContext.id}</Typography>
+                    <Typography variant="caption" color="text.secondary">TYPE: {selectedImageContext.category.toUpperCase()}</Typography>
+                </Box>
+                <IconButton onClick={() => setOpenImageDialog(false)}>
+                    <CloseIcon />
+                </IconButton>
+            </DialogTitle>
+            <DialogContent sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
+                <img 
+                    src={selectedImage} 
+                    alt="Maintenance Evidence" 
+                    style={{ 
+                        width: '100%', 
+                        height: 'auto', 
+                        maxHeight: '75vh', 
+                        objectFit: 'contain',
+                        borderRadius: 8
+                    }} 
+                />
+            </DialogContent>
         </Box>
       </Dialog>
-
     </Container>
   );
 }

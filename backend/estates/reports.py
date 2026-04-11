@@ -277,8 +277,14 @@ class ReportsViewSet(viewsets.ViewSet):
             # Enriches the report by appending specialization to the technician's name
             tech_name = 'Unassigned'
             if m.assigned_to:
-                specialty = getattr(m.assigned_to, 'specialization', 'General')
-                tech_name = f"{m.assigned_to.first_name} {m.assigned_to.last_name} ({specialty.capitalize()})"
+                # Fallback to 'general' if the technician's specialization is null or empty
+                specialty = m.assigned_to.specialization or 'general'
+                
+                # Gracefully handle potentially missing names to prevent string formatting crashes
+                first_name = m.assigned_to.first_name or 'Unknown'
+                last_name = m.assigned_to.last_name or 'Tech'
+                
+                tech_name = f"{first_name} {last_name} ({specialty.capitalize()})"
 
             data.append({
                 'id': m.id,

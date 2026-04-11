@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container, Grid, Paper, Typography, Box, Alert,
   Card, CardContent, Divider, Table, TableBody, TableCell, 
@@ -25,7 +25,10 @@ import WarningIcon from '@mui/icons-material/Warning';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import SearchIcon from '@mui/icons-material/Search';
+import PrintIcon from '@mui/icons-material/Print';
 import LogoLoader from './LogoLoader';
+import { useReactToPrint } from 'react-to-print';
+import ReportTemplate from './ReportTemplate';
 
 // Register ChartJS components
 ChartJS.register(
@@ -58,6 +61,21 @@ function Reports() {
 
   // Alert State
   const [alertInfo, setAlertInfo] = useState({ open: false, message: '', severity: 'success' });
+
+  // References and configuration hooks for capturing the hidden report components into PDF/Print
+  const txReportRef = useRef(null);
+  const mxReportRef = useRef(null);
+
+  // Correct react-to-print v3 Syntax using contentRef
+  const handlePrintTx = useReactToPrint({
+      contentRef: txReportRef,
+      documentTitle: `SEAMS_Transaction_Ledger_${new Date().toISOString().split('T')[0]}`,
+  });
+
+  const handlePrintMx = useReactToPrint({
+      contentRef: mxReportRef,
+      documentTitle: `SEAMS_Maintenance_Logs_${new Date().toISOString().split('T')[0]}`,
+  });
 
   useEffect(() => {
     fetchDashboardData();
@@ -210,6 +228,14 @@ function Reports() {
 
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(val || 0);
+  };
+
+  // Helper formats the selected date parameters into a clean string for the print document headers
+  const getFilterDateRange = (start, end) => {
+      if (start && end) return `${start} to ${end}`;
+      if (start) return `From ${start}`;
+      if (end) return `Until ${end}`;
+      return 'All Time';
   };
 
   if (loading) return <LogoLoader />;
@@ -524,11 +550,16 @@ function Reports() {
             </Paper>
 
             <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-                <Box p={2} display="flex" justifyContent="space-between" alignItems="center">
+                <Box p={2} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                     <Typography variant="h6">Transaction Results ({transactions.length})</Typography>
-                    <Button variant="outlined" color="success" startIcon={<FileDownloadIcon />} onClick={() => handleExportCSV('transactions')} disabled={transactions.length === 0}>
-                        Export Ledger
-                    </Button>
+                    <Box display="flex" gap={2}>
+                        <Button variant="outlined" color="primary" startIcon={<PrintIcon />} onClick={handlePrintTx} disabled={transactions.length === 0}>
+                            Print PDF
+                        </Button>
+                        <Button variant="outlined" color="success" startIcon={<FileDownloadIcon />} onClick={() => handleExportCSV('transactions')} disabled={transactions.length === 0}>
+                            Export Ledger
+                        </Button>
+                    </Box>
                 </Box>
                 <Divider />
                 <TableContainer sx={{ maxHeight: 500 }}>
@@ -566,6 +597,29 @@ function Reports() {
                     </Table>
                 </TableContainer>
             </Paper>
+
+            {/* Hidden Printable Template wrapper for Transaction Audits */}
+            <Box sx={{ position: 'absolute', top: '-10000px', left: '-10000px', overflow: 'hidden' }}>
+                <ReportTemplate 
+                    ref={txReportRef}
+                    reportTitle="Transaction Ledger Audit"
+                    dateRange={getFilterDateRange(txFilters.start_date, txFilters.end_date)}
+                    summaryStats={[
+                        { label: 'Total Records', value: transactions.length },
+                        { label: 'Total Volume', value: transactions.reduce((sum, tx) => sum + parseFloat(tx.amount), 0), color: '#2e7d32', isCurrency: true }
+                    ]}
+                    tableHeaders={['Date', 'Tenant', 'House', 'Type', 'Amount', 'Method', 'Status']}
+                    tableData={transactions.map(tx => ({
+                        date: tx.date,
+                        tenant: tx.tenant,
+                        house: tx.house,
+                        type: tx.type.toUpperCase(),
+                        amount: formatCurrency(tx.amount),
+                        method: tx.method.toUpperCase(),
+                        status: tx.status.toUpperCase()
+                    }))}
+                />
+            </Box>
         </Box>
       )}
 
@@ -602,11 +656,16 @@ function Reports() {
             </Paper>
 
             <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-                <Box p={2} display="flex" justifyContent="space-between" alignItems="center">
+                <Box p={2} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
                     <Typography variant="h6">Maintenance Logs ({maintenanceLogs.length})</Typography>
-                    <Button variant="outlined" color="success" startIcon={<FileDownloadIcon />} onClick={() => handleExportCSV('maintenance')} disabled={maintenanceLogs.length === 0}>
-                        Export Logs
-                    </Button>
+                    <Box display="flex" gap={2}>
+                        <Button variant="outlined" color="primary" startIcon={<PrintIcon />} onClick={handlePrintMx} disabled={maintenanceLogs.length === 0}>
+                            Print PDF
+                        </Button>
+                        <Button variant="outlined" color="success" startIcon={<FileDownloadIcon />} onClick={() => handleExportCSV('maintenance')} disabled={maintenanceLogs.length === 0}>
+                            Export Logs
+                        </Button>
+                    </Box>
                 </Box>
                 <Divider />
                 <TableContainer sx={{ maxHeight: 500 }}>
@@ -642,6 +701,28 @@ function Reports() {
                     </Table>
                 </TableContainer>
             </Paper>
+
+            {/* Hidden Printable Template wrapper for Maintenance Audits */}
+            <Box sx={{ position: 'absolute', top: '-10000px', left: '-10000px', overflow: 'hidden' }}>
+                <ReportTemplate 
+                    ref={mxReportRef}
+                    reportTitle="Maintenance Operations Log"
+                    dateRange={getFilterDateRange(mxFilters.start_date, mxFilters.end_date)}
+                    summaryStats={[
+                        { label: 'Total Jobs', value: maintenanceLogs.length },
+                        { label: 'Total Cost', value: maintenanceLogs.reduce((sum, mx) => sum + parseFloat(mx.cost || 0), 0), color: '#d32f2f', isCurrency: true }
+                    ]}
+                    tableHeaders={['Date', 'House', 'Category', 'Status', 'Technician', 'Cost']}
+                    tableData={maintenanceLogs.map(mx => ({
+                        date: mx.date,
+                        house: mx.house,
+                        category: mx.category.toUpperCase(),
+                        status: mx.status.replace('_', ' ').toUpperCase(),
+                        technician: mx.technician,
+                        cost: formatCurrency(mx.cost)
+                    }))}
+                />
+            </Box>
         </Box>
       )}
 
