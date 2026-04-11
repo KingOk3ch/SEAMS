@@ -94,8 +94,9 @@ function Layout({ children, onLogout }) {
       let filterFn = () => false;
 
       if (role === 'estate_admin') {
+        // Admin: Count new successful payments that haven't been acknowledged yet (acts as an unread receipt to prevent STK push race condition bugs)
         url = 'http://localhost:8000/api/payments/';
-        filterFn = (item) => item.is_verified === false;
+        filterFn = (item) => item.is_verified === true && item.admin_has_viewed === false;
       } 
       else if (role === 'tenant') {
         url = 'http://localhost:8000/api/bills/';

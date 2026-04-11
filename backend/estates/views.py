@@ -151,7 +151,23 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Payment.objects.filter(tenant__user=user).order_by('-payment_date')
         return Payment.objects.all().order_by('-payment_date')
 
+    @action(detail=False, methods=['post'])
+    def mark_viewed(self, request):
+        if getattr(request.user, 'role', None) != 'estate_admin':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+            
+        # Silently updates all unread verified payments as viewed by the admin
+        updated_count = Payment.objects.filter(is_verified=True, admin_has_viewed=False).update(admin_has_viewed=True)
+        return Response({'status': 'success', 'updated': updated_count})
+
     def create(self, request, *args, **kwargs):
+        # Enforce automated M-Pesa workflow: actively block legacy manual M-Pesa submissions from tenants
+        if getattr(request.user, 'role', None) == 'tenant' and request.data.get('payment_method') == 'mpesa':
+            return Response(
+                {'error': 'Manual M-Pesa code submission is no longer supported. Please use the automated "Pay via M-Pesa" button.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -142,7 +142,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'tenant', 'tenant_name', 'house_number', 'amount', 'payment_date',
             'payment_method', 'payment_type', 'reference_number',
-            'month_for', 'is_verified', 'status', 'rejection_reason', 'created_at'
+            'month_for', 'is_verified', 'admin_has_viewed', 'status', 'rejection_reason', 'created_at'
         ]
 
     def get_tenant_name(self, obj):
@@ -174,8 +174,10 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate_reference_number(self, value):
         if not value: return value
-        if not re.match(r'^[A-Z0-9]+$', value):
-            raise serializers.ValidationError("Transaction code must be UPPERCASE letters and numbers only (e.g., QK782...).")
+        
+        # Updated to safely accept both standard M-Pesa receipts and automated CheckoutRequestIDs (e.g., ws_CO_...)
+        if not re.match(r'^[A-Za-z0-9_]+$', value):
+            raise serializers.ValidationError("Transaction code must be alphanumeric or a valid STK request ID.")
         if len(value) < 4:
             raise serializers.ValidationError("Code is too short.")
         return value

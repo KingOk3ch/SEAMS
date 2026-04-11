@@ -135,6 +135,9 @@ class Payment(models.Model):
     
     is_verified = models.BooleanField(default=False)
     
+    # Tracking field for admin notification badge (acts like an unread message counter)
+    admin_has_viewed = models.BooleanField(default=False)
+    
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     rejection_reason = models.TextField(blank=True, null=True)
     

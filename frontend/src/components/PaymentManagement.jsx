@@ -52,6 +52,20 @@ function PaymentManagement() {
   });
 
   useEffect(() => {
+    // Silently mark all new verified payments as "read" to clear the notification badge
+    const markPaymentsViewed = async () => {
+        try {
+            const token = localStorage.getItem('access_token');
+            await fetch('http://localhost:8000/api/payments/mark_viewed/', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        } catch (err) {
+            console.error("Failed to clear badge", err);
+        }
+    };
+    
+    markPaymentsViewed();
     fetchData();
   }, []);
 
@@ -268,7 +282,7 @@ function PaymentManagement() {
                             <TableCell><strong>Tenant</strong></TableCell>
                             <TableCell><strong>Type</strong></TableCell>
                             <TableCell><strong>Amount</strong></TableCell>
-                            <TableCell><strong>Ref (Last 4)</strong></TableCell>
+                            <TableCell><strong>Reference</strong></TableCell>
                             <TableCell><strong>Method</strong></TableCell>
                             <TableCell align="center"><strong>Actions</strong></TableCell>
                         </TableRow>
@@ -280,6 +294,7 @@ function PaymentManagement() {
                             pendingPayments.map((p) => {
                                 const t = tenants.find(ten => ten.id === p.tenant);
                                 const name = t ? `${t.user.first_name} ${t.user.last_name}` : 'Unknown';
+                                const isPendingMpesa = p.payment_method === 'mpesa';
                                 return (
                                 <TableRow key={p.id} hover>
                                     <TableCell>{new Date(p.payment_date).toLocaleDateString()}</TableCell>
@@ -287,7 +302,13 @@ function PaymentManagement() {
                                     <TableCell><Chip label={p.payment_type.toUpperCase()} size="small" /></TableCell>
                                     <TableCell><strong>{formatCurrency(p.amount)}</strong></TableCell>
                                     <TableCell>{p.reference_number}</TableCell>
-                                    <TableCell>{p.payment_method}</TableCell>
+                                    <TableCell>
+                                        <Chip 
+                                            label={isPendingMpesa ? 'M-PESA (STK)' : p.payment_method.toUpperCase()} 
+                                            color={isPendingMpesa ? 'success' : 'default'} 
+                                            size="small" 
+                                        />
+                                    </TableCell>
                                     <TableCell align="center">
                                         <Box display="flex" justifyContent="center" gap={1}>
                                             <Button 
@@ -295,10 +316,10 @@ function PaymentManagement() {
                                                 color="success" 
                                                 size="small" 
                                                 startIcon={processingId === p.id ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
-                                                disabled={processingId === p.id}
+                                                disabled={processingId === p.id || isPendingMpesa}
                                                 onClick={() => handleVerifyPayment(p.id)}
                                             >
-                                                {processingId === p.id ? 'Verifying...' : 'Verify'}
+                                                {processingId === p.id ? 'Verifying...' : (isPendingMpesa ? 'Auto-Verifying' : 'Verify')}
                                             </Button>
                                             <Button 
                                                 variant="outlined" 
@@ -437,7 +458,7 @@ function PaymentManagement() {
                  <TextField select label="Method" value={payForm.payment_method} onChange={(e) => handlePayFormChange('payment_method', e.target.value)} fullWidth error={!!fieldErrors.payment_method} helperText={fieldErrors.payment_method}>
                     <MenuItem value="cash">Cash</MenuItem><MenuItem value="bank">Bank Transfer</MenuItem><MenuItem value="mpesa">M-Pesa (Manual)</MenuItem>
                 </TextField>
-                <TextField label="Ref (Last 4 Digits)" value={payForm.reference_number} onChange={(e) => handlePayFormChange('reference_number', e.target.value)} fullWidth inputProps={{ maxLength: 10 }} helperText={fieldErrors.reference_number} error={!!fieldErrors.reference_number} />
+                <TextField label="Reference Number" value={payForm.reference_number} onChange={(e) => handlePayFormChange('reference_number', e.target.value)} fullWidth helperText={fieldErrors.reference_number} error={!!fieldErrors.reference_number} />
             </Box>
         </DialogContent>
         <DialogActions>

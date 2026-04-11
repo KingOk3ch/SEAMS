@@ -27,8 +27,9 @@ function TenantPayments() {
   const [openPayDialog, setOpenPayDialog] = useState(false);
   const [isBillPayment, setIsBillPayment] = useState(false);
 
+  // Strictly initialized to mpesa, reference removed
   const [payForm, setPayForm] = useState({
-    amount: '', payment_type: 'rent', method: 'bank', reference: '',
+    amount: '', payment_type: 'rent', method: 'mpesa',
     phone: '', payment_date: new Date().toISOString().split('T')[0]
   });
   const [saving, setSaving] = useState(false);
@@ -131,12 +132,13 @@ function TenantPayments() {
     setFieldErrors({});
     setError('');
     setSuccess('');
+    
     setPayForm({
-        ...payForm,
         amount: balanceDue > 0 ? balanceDue : 0,
         payment_type: bill.bill_type,
-        payment_date: new Date().toISOString().split('T')[0],
-        reference: ''
+        method: 'mpesa',
+        phone: '',
+        payment_date: new Date().toISOString().split('T')[0]
     });
     setOpenPayDialog(true);
   };
@@ -147,7 +149,7 @@ function TenantPayments() {
     setError('');
     setSuccess('');
     setPayForm({
-        amount: '', payment_type: 'rent', method: 'bank', reference: '',
+        amount: '', payment_type: 'rent', method: 'mpesa',
         phone: '', payment_date: new Date().toISOString().split('T')[0]
     });
     setOpenPayDialog(true);
@@ -160,65 +162,33 @@ function TenantPayments() {
     try {
         const token = localStorage.getItem('access_token');
         
-        if (payForm.method === 'mpesa') {
-            const mpesaData = {
-                amount: payForm.amount,
-                phone_number: payForm.phone,
-                payment_type: payForm.payment_type,
-                month_for: payForm.payment_date
-            };
-            
-            const res = await fetch('http://localhost:8000/api/payments/mpesa/stk-push/', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(mpesaData)
-            });
-            
-            if (res.ok) {
-                setSuccess('STK Push initiated! Please check your phone to enter your M-Pesa PIN.');
-                setError('');
-                setOpenPayDialog(false);
-                setTimeout(() => fetchData(), 5000); // Give user a moment
-            } else {
-                const errorData = await res.json();
-                const { global, fields } = parseBackendErrors(errorData);
-                setError(global || errorData.error || 'Failed to initiate STK push. Check your phone number.');
-                setFieldErrors(fields || {});
-            }
+        // Automated STK Push is now the only allowed pathway for tenants
+        const mpesaData = {
+            amount: payForm.amount,
+            phone_number: payForm.phone,
+            payment_type: payForm.payment_type,
+            month_for: payForm.payment_date
+        };
+        
+        const res = await fetch('http://localhost:8000/api/payments/mpesa/stk-push/', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(mpesaData)
+        });
+        
+        if (res.ok) {
+            setSuccess('STK Push initiated! Please check your phone to enter your M-Pesa PIN.');
+            setError('');
+            setOpenPayDialog(false);
+            setTimeout(() => fetchData(), 5000); 
         } else {
-            const paymentData = {
-                tenant: tenantData.id,
-                amount: payForm.amount,
-                payment_method: payForm.method,
-                payment_type: payForm.payment_type,
-                reference_number: payForm.reference || `REF-${Date.now()}`,
-                payment_date: payForm.payment_date,
-                month_for: payForm.payment_date
-            };
-
-            const res = await fetch('http://localhost:8000/api/payments/', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(paymentData)
-            });
-
-            if (res.ok) {
-                setSuccess('Payment Recorded! Waiting for Admin Verification.');
-                setError('');
-                setOpenPayDialog(false);
-                fetchData();
-            } else {
-                const errorData = await res.json();
-                const { global, fields } = parseBackendErrors(errorData);
-                setError(global || 'Failed to record payment. Please check the form.');
-                setFieldErrors(fields);
-            }
+            const errorData = await res.json();
+            const { global, fields } = parseBackendErrors(errorData);
+            setError(global || errorData.error || 'Failed to initiate STK push. Check your phone number.');
+            setFieldErrors(fields || {});
         }
     } catch (err) {
         setError('Network error occurred');
@@ -239,7 +209,8 @@ function TenantPayments() {
   const getStatusChip = (p) => {
       if(p.status === 'rejected') return <Chip label="Rejected" color="error" size="small" />;
       if(p.status === 'verified' || p.is_verified) return <Chip label="Verified" color="success" size="small" />;
-      return <Chip label="Pending" color="warning" size="small" />;
+      if(p.payment_method === 'mpesa') return <Chip label="Awaiting Auto-Verify" color="info" size="small" />;
+      return <Chip label="Pending Admin Verify" color="warning" size="small" />;
   };
 
   // Use the branded LogoLoader for the initial full-page data fetch
@@ -387,6 +358,10 @@ function TenantPayments() {
         <DialogTitle>{isBillPayment ? "Pay Bill" : "Make a Payment"}</DialogTitle>
         <DialogContent>
             <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                
+                {/* STRICT M-PESA ENFORCEMENT - Legacy payment method dropdown permanently removed to guarantee STK Push */}
+                <Alert severity="info">Payments are processed securely via M-Pesa STK Push.</Alert>
+
                 <TextField
                     label="Amount (KES)"
                     type="number"
@@ -409,41 +384,16 @@ function TenantPayments() {
                 >
                     {['rent','water','electricity','garbage','damage','deposit','penalty','other'].map(o => <MenuItem key={o} value={o}>{o.toUpperCase()}</MenuItem>)}
                 </TextField>
-                <TextField
-                    select
-                    label="Method"
-                    value={payForm.method}
-                    onChange={(e) => handlePayFormChange('method', e.target.value)}
-                    fullWidth
-                    error={!!fieldErrors.method}
-                    helperText={fieldErrors.method}
-                >
-                    <MenuItem value="mpesa">M-Pesa (STK Push)</MenuItem>
-                    <MenuItem value="bank">Bank Transfer</MenuItem>
-                    <MenuItem value="cash">Cash</MenuItem>
-                </TextField>
 
-                {payForm.method === 'mpesa' ? (
-                    <TextField
-                        label="Safaricom Phone Number"
-                        placeholder="e.g. 254712345678"
-                        value={payForm.phone}
-                        onChange={(e) => handlePayFormChange('phone', e.target.value)}
-                        fullWidth
-                        helperText={fieldErrors.phone || "Enter your Safaricom number format (2547...)"}
-                        error={!!fieldErrors.phone}
-                    />
-                ) : (
-                    <TextField
-                        label="Transaction Ref (Last 4 Digits)"
-                        value={payForm.reference}
-                        onChange={(e) => handlePayFormChange('reference', e.target.value)}
-                        fullWidth
-                        inputProps={{ maxLength: 4 }}
-                        helperText={fieldErrors.reference || "Enter only the last 4 characters"}
-                        error={!!fieldErrors.reference}
-                    />
-                )}
+                <TextField
+                    label="Safaricom Phone Number"
+                    placeholder="e.g. 254712345678"
+                    value={payForm.phone}
+                    onChange={(e) => handlePayFormChange('phone', e.target.value)}
+                    fullWidth
+                    helperText={fieldErrors.phone || "Enter your Safaricom number format (2547...)"}
+                    error={!!fieldErrors.phone}
+                />
             </Box>
         </DialogContent>
         <DialogActions>
