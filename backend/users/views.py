@@ -361,27 +361,33 @@ class UserViewSet(viewsets.ModelViewSet):
 @permission_classes([AllowAny])
 def tenant_register(request):
     serializer = TenantRegistrationSerializer(data=request.data)
-    
+
     if serializer.is_valid():
         user = serializer.save()
         code = user.email_verification_token
-        
+
         print(f"Sending verification code {code} to {user.email}...")
-        send_mail(
-            subject='Verify Your Email - SEAMS',
-            message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nYour Email Verification Code is: {code}\n\nPlease enter this code to verify your account.\n\nIf you did not request this, please ignore this email.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False, 
-        )
-        print("Email sent successfully.")
-        
+        try:
+            result = send_mail(
+                subject='Verify Your Email - SEAMS',
+                message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nYour Email Verification Code is: {code}\n\nPlease enter this code to verify your account.\n\nIf you did not request this, please ignore this email.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+            print(f"Email sent successfully (result: {result}) to {user.email}")
+
+        except Exception as e:
+            print(f"Failed to send email to {user.email}: {e}")
+            # Don't fail the registration if email fails, but log it
+            # You might want to implement a retry mechanism or queue system here
+
         return Response({
             'message': 'Registration successful! Verification code sent to email.',
             'user_id': user.id,
             'email': user.email,
         }, status=status.HTTP_201_CREATED)
-    
+
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])

@@ -66,15 +66,52 @@ function Reports() {
   const txReportRef = useRef(null);
   const mxReportRef = useRef(null);
 
-  // Correct react-to-print v3 Syntax using contentRef
+  // --- DYNAMIC REPORT LABELING LOGIC ---
+  // Generates context-aware titles based on active filters, including date ranges.
+  const getTxReportTitle = () => {
+      let title = "Transaction Ledger Audit";
+      if (txFilters.payment_type !== 'all') {
+          const typeMap = {
+              'rent': 'Rent Collection', 'water': 'Water Utility', 'electricity': 'Electricity Billing',
+              'garbage': 'Garbage Fee', 'damage': 'Damage Penalty', 'deposit': 'Security Deposit',
+              'penalty': 'Late Penalty', 'other': 'Miscellaneous'
+          };
+          title = `${typeMap[txFilters.payment_type] || txFilters.payment_type.toUpperCase()} Audit`;
+      }
+      if (txFilters.start_date || txFilters.end_date) {
+          const start = txFilters.start_date || 'Beginning';
+          const end = txFilters.end_date || 'Present';
+          title += ` (${start} to ${end})`;
+      }
+      return title;
+  };
+
+  const getMxReportTitle = () => {
+      let title = "Maintenance Operations Log";
+      if (mxFilters.category !== 'all') {
+          const catLabel = mxFilters.category.replace('_', ' ').toUpperCase();
+          title = `${catLabel} Maintenance Log`;
+      }
+      if (mxFilters.start_date || mxFilters.end_date) {
+          const start = mxFilters.start_date || 'Beginning';
+          const end = mxFilters.end_date || 'Present';
+          title += ` (${start} to ${end})`;
+      }
+      return title;
+  };
+
+  const currentTxTitle = getTxReportTitle();
+  const currentMxTitle = getMxReportTitle();
+
+  // Correct react-to-print v3 Syntax using contentRef with dynamic document titles
   const handlePrintTx = useReactToPrint({
       contentRef: txReportRef,
-      documentTitle: `SEAMS_Transaction_Ledger_${new Date().toISOString().split('T')[0]}`,
+      documentTitle: currentTxTitle.replace(/[^a-zA-Z0-9]/g, '_'),
   });
 
   const handlePrintMx = useReactToPrint({
       contentRef: mxReportRef,
-      documentTitle: `SEAMS_Maintenance_Logs_${new Date().toISOString().split('T')[0]}`,
+      documentTitle: currentMxTitle.replace(/[^a-zA-Z0-9]/g, '_'),
   });
 
   useEffect(() => {
@@ -195,32 +232,37 @@ function Reports() {
       let dataToExport = [];
       let headers = [];
       let filename = '';
+      let titleRow = ''; // Injects the dynamic title into the CSV header
 
       if (type === 'debtors') {
           if (debtors.length === 0) return setAlertInfo({ open: true, message: 'No data to export.', severity: 'info' });
           headers = ['Tenant Name', 'House Number', 'Phone', 'Outstanding Balance (KES)'];
           dataToExport = debtors.map(d => `"${d.name}","${d.house}","${d.phone}","${d.balance}"`);
-          filename = 'Debtors_List';
+          titleRow = `"Outstanding Debtors Report"`;
+          filename = `SEAMS_Debtors_List_${new Date().toISOString().split('T')[0]}.csv`;
       } else if (type === 'transactions') {
           if (transactions.length === 0) return setAlertInfo({ open: true, message: 'No data to export.', severity: 'info' });
           headers = ['Date', 'Tenant', 'House', 'Type', 'Amount (KES)', 'Method', 'Ref', 'Status'];
           dataToExport = transactions.map(t => `"${t.date}","${t.tenant}","${t.house}","${t.type.toUpperCase()}","${t.amount}","${t.method.toUpperCase()}","${t.reference}","${t.status.toUpperCase()}"`);
-          filename = 'Transaction_Ledger';
+          titleRow = `"${currentTxTitle}"`;
+          filename = `${currentTxTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
       } else if (type === 'maintenance') {
           if (maintenanceLogs.length === 0) return setAlertInfo({ open: true, message: 'No data to export.', severity: 'info' });
           headers = ['Date', 'House', 'Category', 'Priority', 'Status', 'Technician', 'Cost (KES)', 'Description'];
           dataToExport = maintenanceLogs.map(m => `"${m.date}","${m.house}","${m.category.toUpperCase()}","${m.priority.toUpperCase()}","${m.status.toUpperCase()}","${m.technician}","${m.cost}","${m.issue.replace(/"/g, '""')}"`);
-          filename = 'Maintenance_Logs';
+          titleRow = `"${currentMxTitle}"`;
+          filename = `${currentMxTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
       }
 
-      const csvString = [headers.join(','), ...dataToExport].join('\n');
+      // Prepend the dynamic title row before the headers
+      const csvString = [titleRow, headers.join(','), ...dataToExport].join('\n');
       const blob = new Blob([csvString], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       
       const a = document.createElement('a');
       a.setAttribute('hidden', '');
       a.setAttribute('href', url);
-      a.setAttribute('download', `SEAMS_${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+      a.setAttribute('download', filename);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -551,7 +593,8 @@ function Reports() {
 
             <Paper sx={{ width: '100%', overflow: 'hidden' }}>
                 <Box p={2} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                    <Typography variant="h6">Transaction Results ({transactions.length})</Typography>
+                    {/* DYNAMIC TITLE APPLIED HERE */}
+                    <Typography variant="h6">{currentTxTitle} ({transactions.length})</Typography>
                     <Box display="flex" gap={2}>
                         <Button variant="outlined" color="primary" startIcon={<PrintIcon />} onClick={handlePrintTx} disabled={transactions.length === 0}>
                             Print PDF
@@ -602,7 +645,7 @@ function Reports() {
             <Box sx={{ position: 'absolute', top: '-10000px', left: '-10000px', overflow: 'hidden' }}>
                 <ReportTemplate 
                     ref={txReportRef}
-                    reportTitle="Transaction Ledger Audit"
+                    reportTitle={currentTxTitle}
                     dateRange={getFilterDateRange(txFilters.start_date, txFilters.end_date)}
                     summaryStats={[
                         { label: 'Total Records', value: transactions.length },
@@ -657,7 +700,8 @@ function Reports() {
 
             <Paper sx={{ width: '100%', overflow: 'hidden' }}>
                 <Box p={2} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-                    <Typography variant="h6">Maintenance Logs ({maintenanceLogs.length})</Typography>
+                    {/* DYNAMIC TITLE APPLIED HERE */}
+                    <Typography variant="h6">{currentMxTitle} ({maintenanceLogs.length})</Typography>
                     <Box display="flex" gap={2}>
                         <Button variant="outlined" color="primary" startIcon={<PrintIcon />} onClick={handlePrintMx} disabled={maintenanceLogs.length === 0}>
                             Print PDF
@@ -706,7 +750,7 @@ function Reports() {
             <Box sx={{ position: 'absolute', top: '-10000px', left: '-10000px', overflow: 'hidden' }}>
                 <ReportTemplate 
                     ref={mxReportRef}
-                    reportTitle="Maintenance Operations Log"
+                    reportTitle={currentMxTitle}
                     dateRange={getFilterDateRange(mxFilters.start_date, mxFilters.end_date)}
                     summaryStats={[
                         { label: 'Total Jobs', value: maintenanceLogs.length },
