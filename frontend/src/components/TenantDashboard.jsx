@@ -15,6 +15,7 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import { useNavigate } from 'react-router-dom';
 import { parseBackendErrors } from '../utils/errorHandler';
 import LogoLoader from './LogoLoader';
+import MaintenanceProgress from './MaintenanceProgress';
 
 const DEFAULT_TERMS = `1. Rent Payment: Rent is due on or before the 5th of every month.
 2. Security Deposit: Refundable upon vacating, minus cost of repairs/unpaid bills.
@@ -490,6 +491,15 @@ function TenantDashboard() {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Maintenance Progress Section */}
+      <Paper sx={{ mb: 3, p: 2 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h6">Maintenance Progress</Typography>
+          <Chip label="View Requests" onClick={() => navigate('/maintenance')} clickable color="primary" size="small" />
+        </Box>
+      </Paper>
+      <MaintenanceProgress maintenance={maintenance} />
 
       {/* Quick Pay Dialog */}
       <Dialog open={openPayDialog} onClose={() => setOpenPayDialog(false)} maxWidth="xs" fullWidth>
