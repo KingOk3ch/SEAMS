@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider } from '@mui/material/styles'; // Removed createTheme from here
 import CssBaseline from '@mui/material/CssBaseline';
 
-// --- NEW IMPORT: Bringing in our premium master theme ---
+// Global theme configuration
 import theme from './theme/theme'; 
 
 import Login from './components/Login';
@@ -21,6 +21,8 @@ import TenantRegistration from './components/TenantRegistration';
 import Profile from './components/Profile';
 import Reports from './components/Reports';
 import TenantPayments from './components/TenantPayments';
+import AdminSupportInbox from './components/AdminSupportInbox';
+import TenantSupport from './components/TenantSupport';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -134,18 +136,10 @@ function App() {
               } 
             />
             <Route 
-              path="/tenant-dashboard" 
+              path="/admin-support" 
               element={
-                <ProtectedRoute allowedRoles={['tenant']}>
-                  <TenantDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/profile" 
-              element={
-                <ProtectedRoute allowedRoles={['estate_admin', 'technician', 'tenant', 'manager']}>
-                  <Profile />
+                <ProtectedRoute allowedRoles={['estate_admin']}>
+                  <AdminSupportInbox />
                 </ProtectedRoute>
               } 
             />
@@ -158,10 +152,34 @@ function App() {
               } 
             />
             <Route 
+              path="/tenant-dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['tenant']}>
+                  <TenantDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
               path="/tenant-payments" 
               element={
                 <ProtectedRoute allowedRoles={['tenant']}>
                   <TenantPayments />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/tenant-support" 
+              element={
+                <ProtectedRoute allowedRoles={['tenant']}>
+                  <TenantSupport />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/profile" 
+              element={
+                <ProtectedRoute allowedRoles={['estate_admin', 'technician', 'tenant', 'manager']}>
+                  <Profile />
                 </ProtectedRoute>
               } 
             />

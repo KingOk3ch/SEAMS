@@ -33,11 +33,11 @@ def catalog_files(base_path):
         full_path = os.path.join(base_path, rel_path)
         
         if not os.path.exists(full_path):
-            print(f"\n⚠️  {category}: Directory not found - {rel_path}")
+            print(f"\n[!] {category}: Directory not found - {rel_path}")
             continue
             
         print(f"\n{'=' * 80}")
-        print(f"📁 {category} ({rel_path})")
+        print(f"[DIR] {category} ({rel_path})")
         print(f"{'=' * 80}")
         
         files_found = []
@@ -51,7 +51,7 @@ def catalog_files(base_path):
                     files_found.append((file, file_path, rel_file_path))
         
         if not files_found:
-            print(f"   ⚠️  No files found")
+            print(f"   [!] No files found")
             continue
             
         for filename, full_file_path, rel_file_path in sorted(files_found):
@@ -60,7 +60,7 @@ def catalog_files(base_path):
                     content = f.read()
                     lines = len(content.splitlines())
                     
-                print(f"\n📄 {filename} ({lines} lines)")
+                print(f"\n[FILE] {filename} ({lines} lines)")
                 print(f"   Path: {rel_file_path}")
                 print(f"   Size: {len(content)} bytes")
                 
@@ -72,8 +72,8 @@ def catalog_files(base_path):
                 }
                 
             except Exception as e:
-                print(f"   ❌ Error reading: {e}")
-    
+                print(f"   [ERROR] Error reading: {e}")
+                
     print("\n" + "=" * 80)
     print(f"TOTAL FILES CATALOGED: {len(all_files)}")
     print("=" * 80)
@@ -85,13 +85,19 @@ def catalog_files(base_path):
     print("=" * 80)
     
     for file_path, info in sorted(all_files.items()):
-        print(f"\n{'#' * 80}")
-        print(f"# FILE: {file_path}")
-        print(f"# Category: {info['category']}")
-        print(f"# Lines: {info['lines']}")
-        print(f"{'#' * 80}\n")
-        print(info['content'])
-        print("\n")
+        try:
+            print(f"\n{'#' * 80}")
+            print(f"# FILE: {file_path}")
+            print(f"# Category: {info['category']}")
+            print(f"# Lines: {info['lines']}")
+            print(f"{'#' * 80}\n")
+            
+            # Use ascii replace to avoid any hidden encoding issues in file contents
+            safe_content = info['content'].encode('ascii', 'replace').decode('ascii')
+            print(safe_content)
+            print("\n")
+        except Exception as e:
+             print(f"Could not print contents for {file_path} due to encoding error: {e}")
 
 if __name__ == "__main__":
     # Get the base path
@@ -99,18 +105,12 @@ if __name__ == "__main__":
         base_path = sys.argv[1]
     else:
         base_path = os.getcwd()
-    
+        
     if not os.path.exists(base_path):
-        print(f"❌ Error: Path does not exist: {base_path}")
-        print("\nUsage:")
-        print(f"  python {sys.argv[0]} [path_to_SEAMS]")
-        print("\nOr run from the SEAMS directory:")
-        print(f"  cd C:\\Users\\Admin\\Desktop\\SEAMS")
-        print(f"  python {sys.argv[0]}")
+        print(f"[ERROR] Path does not exist: {base_path}")
         sys.exit(1)
-    
+        
     print(f"Scanning: {base_path}\n")
     catalog_files(base_path)
     
-    print("\n✅ Cataloging complete!")
-    print("\nYou can now copy this entire output and paste it to Claude.")
+    print("\n[SUCCESS] Cataloging complete!")

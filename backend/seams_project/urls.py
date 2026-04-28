@@ -9,7 +9,7 @@ from users.views import UserViewSet, tenant_register, verify_email, Notification
 from estates.views import (
     HouseViewSet, TenantViewSet, ContractViewSet, 
     PaymentViewSet, BillViewSet, DashboardStatsView,
-    MpesaSTKPushView, MpesaCallbackView
+    MpesaSTKPushView, MpesaCallbackView, ComplaintViewSet
 )
 from estates.reports import ReportsViewSet
 from maintenance.views import MaintenanceRequestViewSet, MaintenanceImageViewSet
@@ -21,6 +21,7 @@ router.register('tenants', TenantViewSet)
 router.register('contracts', ContractViewSet)
 router.register('payments', PaymentViewSet)
 router.register('bills', BillViewSet)
+router.register('support', ComplaintViewSet, basename='support')
 router.register('maintenance', MaintenanceRequestViewSet, basename='maintenance')
 router.register('maintenance-images', MaintenanceImageViewSet)
 router.register('notifications', NotificationViewSet, basename='notifications')
@@ -38,7 +39,7 @@ urlpatterns = [
     path('api/payments/mpesa/stk-push/', MpesaSTKPushView.as_view(), name='mpesa-stk-push'),
     path('api/payments/mpesa/callback/', MpesaCallbackView.as_view(), name='mpesa-callback'),
     
-    # PRO ANALYTICS ENDPOINT ---
+    # Dashboard and reporting analytics endpoints
     path('api/dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
 ]
 

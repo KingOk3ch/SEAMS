@@ -191,6 +191,41 @@ class Bill(models.Model):
         return self.amount - self.amount_paid
 
 
+# --- Support Help Desk Models ---
+class Complaint(models.Model):
+    STATUS_CHOICES = [
+        ('Open', 'Open'),
+        ('Resolved', 'Resolved'),
+    ]
+    
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='complaints')
+    subject = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Open')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'complaints'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.status}] {self.subject} - {self.tenant.user.username}"
+
+
+class ComplaintMessage(models.Model):
+    complaint = models.ForeignKey(Complaint, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'complaint_messages'
+        ordering = ['timestamp'] 
+
+    def __str__(self):
+        return f"Message by {self.sender.username} on {self.complaint.subject}"
+
+
 # --- SIGNALS ---
 @receiver(pre_delete, sender=Tenant)
 def release_house_on_tenant_delete(sender, instance, **kwargs):

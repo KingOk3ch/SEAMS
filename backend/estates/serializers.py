@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import House, Tenant, Contract, Payment, Bill
+from .models import House, Tenant, Contract, Payment, Bill, Complaint, ComplaintMessage
 from django.contrib.auth import get_user_model
 from users.serializers import UserSerializer
 from datetime import date
@@ -77,7 +77,7 @@ class ContractSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Contract
-        # --- FIXED: Added 'is_accepted' and 'date_accepted' to the serializer ---
+        # Exposes digital lease acceptance tracking fields
         fields = [
             'id', 'tenant', 'tenant_name', 'house', 'house_details', 'house_number',
             'start_date', 'end_date', 'monthly_rent', 'deposit_paid',
@@ -168,14 +168,10 @@ class PaymentSerializer(serializers.ModelSerializer):
         if value <= 0: raise serializers.ValidationError("Payment amount must be positive.")
         return value
 
-    def validate_payment_date(self, value):
-        if value > date.today(): raise serializers.ValidationError("Date cannot be in the future.")
-        return value
-
     def validate_reference_number(self, value):
         if not value: return value
         
-        # Updated to safely accept both standard M-Pesa receipts and automated CheckoutRequestIDs (e.g., ws_CO_...)
+        # Validates both standard alphanumeric M-Pesa receipts and automated STK push CheckoutRequestIDs
         if not re.match(r'^[A-Za-z0-9_]+$', value):
             raise serializers.ValidationError("Transaction code must be alphanumeric or a valid STK request ID.")
         if len(value) < 4:
@@ -218,3 +214,43 @@ class BillSerializer(serializers.ModelSerializer):
     def validate_amount(self, value):
         if value <= 0: raise serializers.ValidationError("Bill amount must be positive.")
         return value
+
+
+# Support Help Desk and Complaint Tracking
+class ComplaintMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ComplaintMessage
+        fields = ['id', 'complaint', 'sender', 'sender_name', 'message', 'timestamp']
+        read_only_fields = ['complaint', 'sender', 'timestamp']
+
+    def get_sender_name(self, obj):
+        return obj.sender.get_full_name() or obj.sender.username
+
+
+class ComplaintSerializer(serializers.ModelSerializer):
+    tenant_name = serializers.SerializerMethodField()
+    house_number = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Complaint
+        fields = ['id', 'tenant', 'tenant_name', 'house_number', 'subject', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['tenant', 'status', 'created_at', 'updated_at']
+
+    def get_tenant_name(self, obj):
+        try:
+            if obj.tenant and obj.tenant.user:
+                full_name = obj.tenant.user.get_full_name()
+                return full_name if full_name.strip() else obj.tenant.user.username
+        except ObjectDoesNotExist:
+            pass
+        return "Unknown Tenant"
+        
+    def get_house_number(self, obj):
+        try:
+            if obj.tenant and obj.tenant.house:
+                return obj.tenant.house.house_number
+        except ObjectDoesNotExist:
+            pass
+        return "N/A"

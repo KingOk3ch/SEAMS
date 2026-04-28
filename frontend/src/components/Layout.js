@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   Menu as MenuIcon, Dashboard, Home, People, Build, Payment, Description, 
-  Logout, PersonAdd, AccountCircle, Notifications, Assessment
+  Logout, PersonAdd, AccountCircle, Notifications, Assessment, Forum
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -24,6 +24,7 @@ function Layout({ children, onLogout }) {
   // --- BADGE STATES ---
   const [paymentBadgeCount, setPaymentBadgeCount] = useState(0);
   const [maintenanceBadgeCount, setMaintenanceBadgeCount] = useState(0); 
+  const [supportBadgeCount, setSupportBadgeCount] = useState(0);
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -44,6 +45,26 @@ function Layout({ children, onLogout }) {
       fetchNotifications();
       fetchPaymentBadge();
       fetchMaintenanceBadge(); 
+      fetchSupportBadge();
+  };
+
+  const fetchSupportBadge = async () => {
+    try {
+        const token = localStorage.getItem('access_token');
+        // Allows both tenants and admins to fetch their active support ticket counts
+        if (!token || !['estate_admin', 'tenant'].includes(user.role)) return;
+
+        const response = await fetch('http://localhost:8000/api/support/open_count/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            setSupportBadgeCount(data.open_complaints || 0);
+        }
+    } catch (err) {
+        console.error("Failed to fetch support badge", err);
+    }
   };
 
   const fetchMaintenanceBadge = async () => {
@@ -190,6 +211,7 @@ function Layout({ children, onLogout }) {
         { text: 'Contracts', icon: <Description />, path: '/contracts' },
         { text: 'Payments', icon: <Payment />, path: '/payments' },
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
+        { text: 'Support Inbox', icon: <Forum />, path: '/admin-support' },
         { text: 'Reports', icon: <Assessment />, path: '/reports' },
       ];
     }
@@ -201,6 +223,7 @@ function Layout({ children, onLogout }) {
         { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' },
         { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' },
         { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
+        { text: 'Help Desk', icon: <Forum />, path: '/tenant-support' },
       ];
     }
     return [];
@@ -232,10 +255,11 @@ function Layout({ children, onLogout }) {
       
       <Divider />
       <List sx={{ flexGrow: 1 }}>
-        {getMenuItems().map((item) => {
+          {getMenuItems().map((item) => {
           // Detect Tab Types
           const isPaymentTab = item.text.includes('Payment') || item.text.includes('Bills');
           const isMaintenanceTab = item.text.includes('Maintenance');
+          const isSupportTab = item.text === 'Support Inbox' || item.text === 'Help Desk';
 
           return (
             <ListItem key={item.text} disablePadding>
@@ -245,18 +269,22 @@ function Layout({ children, onLogout }) {
               >
                 <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
                   
-                  {/* --- APPLY BADGES --- */}
-                  {isPaymentTab ? (
-                    <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
-                      {item.icon}
-                    </Badge>
-                  ) : isMaintenanceTab ? (
-                    <Badge badgeContent={maintenanceBadgeCount} color="error" invisible={maintenanceBadgeCount === 0}>
-                      {item.icon}
-                    </Badge>
-                  ) : (
-                    item.icon
-                  )}
+                          {/* --- APPLY BADGES --- */}
+                          {isPaymentTab ? (
+                            <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
+                              {item.icon}
+                            </Badge>
+                          ) : isMaintenanceTab ? (
+                            <Badge badgeContent={maintenanceBadgeCount} color="error" invisible={maintenanceBadgeCount === 0}>
+                              {item.icon}
+                            </Badge>
+                          ) : isSupportTab ? (
+                            <Badge badgeContent={supportBadgeCount} color="error" invisible={supportBadgeCount === 0}>
+                              {item.icon}
+                            </Badge>
+                          ) : (
+                            item.icon
+                          )}
 
                 </ListItemIcon>
                 <ListItemText primary={item.text} />

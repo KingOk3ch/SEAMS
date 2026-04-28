@@ -8,8 +8,8 @@ from datetime import date, timedelta
 from django.db import IntegrityError, transaction
 from decimal import Decimal
 from django.utils import timezone
-from .models import House, Tenant, Contract, Payment, Bill
-from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer
+from .models import House, Tenant, Contract, Payment, Bill, Complaint, ComplaintMessage
+from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer, ComplaintSerializer, ComplaintMessageSerializer
 from users.models import Notification
 from users.permissions import IsEstateAdminOrReadOnly
 from rest_framework.permissions import AllowAny
@@ -482,3 +482,78 @@ class DashboardStatsView(APIView):
             "pendingUsers": UserSerializer(pending_users_qs, many=True).data,
             "maintenanceRequests": MaintenanceRequestSerializer(active_requests_qs[:5], many=True).data
         })
+
+# Complaint and Support Ticket Operations
+
+class ComplaintViewSet(viewsets.ModelViewSet):
+    serializer_class = ComplaintSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            return Complaint.objects.filter(tenant__user=user)
+        return Complaint.objects.all()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if getattr(user, 'role', None) == 'tenant':
+            try:
+                tenant_profile = Tenant.objects.get(user=user)
+                serializer.save(tenant=tenant_profile)
+            except Tenant.DoesNotExist:
+                raise IntegrityError("No Tenant Profile found for this user.")
+        else:
+            tenant_id = self.request.data.get('tenant')
+            if tenant_id:
+                tenant = Tenant.objects.get(id=tenant_id)
+                serializer.save(tenant=tenant)
+            else:
+                raise IntegrityError("Tenant ID is required for admins to open a thread.")
+
+    @action(detail=True, methods=['get', 'post'])
+    def messages(self, request, pk=None):
+        complaint = self.get_object()
+
+        if request.method == 'GET':
+            messages = complaint.messages.all()
+            serializer = ComplaintMessageSerializer(messages, many=True)
+            return Response(serializer.data)
+
+        if request.method == 'POST':
+            serializer = ComplaintMessageSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save(complaint=complaint, sender=request.user)
+                
+                # Generates a dashboard notification for the tenant when an admin replies to their support thread
+                if getattr(request.user, 'role', None) == 'estate_admin':
+                    Notification.objects.create(
+                        recipient=complaint.tenant.user,
+                        message=f"Admin replied to your inquiry: {complaint.subject}",
+                        link='/tenant-support'
+                    )
+                
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['patch'])
+    def resolve(self, request, pk=None):
+        if getattr(request.user, 'role', None) != 'estate_admin':
+            return Response({'error': 'Only admins can resolve complaints.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        complaint = self.get_object()
+        complaint.status = 'Resolved'
+        complaint.save()
+        return Response({'status': 'success', 'message': 'Complaint resolved.'})
+
+    @action(detail=False, methods=['get'])
+    def open_count(self, request):
+        # Returns the total active support threads for the global notification badge
+        if getattr(request.user, 'role', None) == 'estate_admin':
+            count = Complaint.objects.filter(status='Open').count()
+        elif getattr(request.user, 'role', None) == 'tenant':
+            count = Complaint.objects.filter(tenant__user=request.user, status='Open').count()
+        else:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        return Response({'open_complaints': count})
