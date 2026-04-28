@@ -7,6 +7,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.apps import apps 
 from django.db import transaction 
+from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
@@ -30,6 +31,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]
     
+    # Generates a secure, 12-character random password containing uppercase, lowercase, numbers, and special characters
     def generate_random_password(self, length=12):
         characters = string.ascii_letters + string.digits + '@#$%&*'
         while True:
@@ -40,6 +42,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 any(c in '@#$%&*' for c in password)):
                 return password
     
+    # Handles direct registration by the administrator and dispatches an email with a temporary password and verification token
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
         data = request.data.copy()
@@ -85,6 +88,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    # Processes the initial mandatory profile completion step when a user logs in for the first time
     @action(detail=False, methods=['post'], url_path='complete_profile')
     def complete_profile(self, request):
         user = request.user
@@ -104,6 +108,7 @@ class UserViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    # Allows authenticated users to update their profile information and change their password
     @action(detail=False, methods=['patch'], url_path='update_profile')
     def update_profile(self, request):
         user = request.user
@@ -161,11 +166,13 @@ class UserViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
+    # Retrieves the currently authenticated user's data
     @action(detail=False, methods=['get'])
     def me(self, request):
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
     
+    # Admin utility to force a password reset on a specific user's account
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='reset_password')
     def reset_password(self, request, pk=None):
         user = self.get_object()
@@ -180,6 +187,7 @@ class UserViewSet(viewsets.ModelViewSet):
             'temporary_password': new_password
         }, status=status.HTTP_200_OK)
 
+    # Public endpoint to trigger a password reset email if the user forgets their credentials
     @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='forgot_password')
     def forgot_password(self, request):
         email = request.data.get('email')
@@ -209,6 +217,7 @@ class UserViewSet(viewsets.ModelViewSet):
             print(f"Failed to send reset email: {e}")
             return Response({'error': 'Failed to send reset email. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    # Returns a list of users whose registration is awaiting administrative review
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser], url_path='pending_approvals')
     def pending_approvals(self, request):
         pending_users = User.objects.filter(approval_status='pending').order_by('-registration_date')
@@ -218,6 +227,7 @@ class UserViewSet(viewsets.ModelViewSet):
             'results': serializer.data
         })
     
+    # Approves a pending tenant, assigns them to a vacant house, and generates their lease contract
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def approve(self, request, pk=None):
         user = self.get_object()
@@ -326,6 +336,7 @@ class UserViewSet(viewsets.ModelViewSet):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    # Rejects a pending tenant application, sends an explanation email, and deletes their pending profile
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def reject(self, request, pk=None):
         user = self.get_object()
@@ -357,6 +368,7 @@ class UserViewSet(viewsets.ModelViewSet):
             'message': 'User rejected.',
         }, status=status.HTTP_200_OK)
 
+# Public endpoint handling self-registration for new tenants
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def tenant_register(request):
@@ -379,8 +391,6 @@ def tenant_register(request):
 
         except Exception as e:
             print(f"Failed to send email to {user.email}: {e}")
-            # Don't fail the registration if email fails, but log it
-            # You might want to implement a retry mechanism or queue system here
 
         return Response({
             'message': 'Registration successful! Verification code sent to email.',
@@ -390,6 +400,7 @@ def tenant_register(request):
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Validates the 6-digit code sent to the user's email during registration
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_email(request):
@@ -438,5 +449,31 @@ class NotificationViewSet(viewsets.ModelViewSet):
         self.get_queryset().update(is_read=True)
         return Response({'status': 'all marked as read'})
 
-
-    
+# Overrides the default SimpleJWT login view to inject custom onboarding authentication status checks
+# Evaluates precise missing criteria (unverified email vs. unapproved admin status) to deliver targeted HTTP 403 error messages
+class CustomTokenObtainPairView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        
+        user = User.objects.filter(username=username).first()
+        if not user:
+            user = User.objects.filter(email=username).first()
+            
+        if user and user.check_password(password):
+                
+            # --- LEGACY BYPASS ---
+            # Only forces email verification if the user actually has a pending verification token
+            # This safely allows preexisting admins and legacy tenants to log in
+            if not getattr(user, 'email_verified', False) and getattr(user, 'email_verification_token', None):
+                return Response({"error": "Please verify your email before logging in."}, status=status.HTTP_403_FORBIDDEN)
+                
+            # Evaluates the specific admin approval status before proceeding to token generation
+            # Preexisting Admins naturally bypass this since their status is not 'pending' or 'rejected'
+            if getattr(user, 'approval_status', '') == 'pending':
+                return Response({"error": "Your account is verified but currently pending Admin approval."}, status=status.HTTP_403_FORBIDDEN)
+            
+            if getattr(user, 'approval_status', '') == 'rejected':
+                return Response({"error": "Your account registration was rejected by the Admin."}, status=status.HTTP_403_FORBIDDEN)
+                
+        return super().post(request, *args, **kwargs)

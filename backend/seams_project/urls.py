@@ -3,9 +3,9 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
-from users.views import UserViewSet, tenant_register, verify_email, NotificationViewSet
+from users.views import UserViewSet, tenant_register, verify_email, NotificationViewSet, CustomTokenObtainPairView
 from estates.views import (
     HouseViewSet, TenantViewSet, ContractViewSet, 
     PaymentViewSet, BillViewSet, DashboardStatsView,
@@ -14,6 +14,7 @@ from estates.views import (
 from estates.reports import ReportsViewSet
 from maintenance.views import MaintenanceRequestViewSet, MaintenanceImageViewSet
 
+# Initializes the default router for mapping ViewSets to automatic API routes
 router = DefaultRouter()
 router.register('users', UserViewSet)
 router.register('houses', HouseViewSet)
@@ -30,11 +31,14 @@ router.register('reports', ReportsViewSet, basename='reports')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    
+    # Routes the login endpoint exclusively through the custom authentication interceptor view
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/register/tenant/', tenant_register, name='tenant-register'),
     path('api/auth/verify-email/', verify_email, name='verify-email'),
     path("api-auth/", include("rest_framework.urls")),
+    
     # M-Pesa endpoints
     path('api/payments/mpesa/stk-push/', MpesaSTKPushView.as_view(), name='mpesa-stk-push'),
     path('api/payments/mpesa/callback/', MpesaCallbackView.as_view(), name='mpesa-callback'),

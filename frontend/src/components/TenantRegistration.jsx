@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import { 
   PersonOutline, EmailOutlined, LockOutlined, VisibilityOffOutlined, VisibilityOutlined,
-  PhoneOutlined, BadgeOutlined, CheckCircle, MarkEmailRead 
+  PhoneOutlined, BadgeOutlined, CheckCircle, MarkEmailRead, RadioButtonUnchecked
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api'; 
@@ -14,13 +14,17 @@ import logoImage from '../assets/seamslogo.png';
 
 const TenantRegistration = () => {
   const navigate = useNavigate();
+  
+  // Tracks the current view in the registration flow (1: Registration Form, 2: OTP Verification, 3: Success Confirmation)
   const [step, setStep] = useState(1); 
   
+  // Stores all user inputs from the primary registration form
   const [formData, setFormData] = useState({
     username: '', email: '', password: '', confirmPassword: '',
     first_name: '', last_name: '', phone: '', id_number: '',
   });
 
+  // Manages the OTP code input, form validation errors, and network loading states
   const [verificationCode, setVerificationCode] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -28,25 +32,62 @@ const TenantRegistration = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
 
+  // Toggles the visibility type of the password input fields between 'text' and 'password'
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // Tracks the real-time fulfillment of security requirements for the dynamic password strength checklist
+  const [passwordCriteria, setPasswordCriteria] = useState({
+    hasMinLength: false,
+    hasUppercase: false,
+    hasNumber: false,
+    hasSpecialChar: false,
+  });
+  const [passwordsMatch, setPasswordsMatch] = useState(false);
+
+  // Handlers for toggling password visibility icons
   const handleClickShowPassword = () => setShowPassword((show) => !show);
   const handleClickShowConfirmPassword = () => setShowConfirmPassword((show) => !show);
-
   const handleMouseDownPassword = (event) => {
     event.preventDefault();
   };
 
+  // Evaluates the password string against standard security requirements using Regular Expressions on every keystroke
+  const evaluatePassword = (password, confirmPassword) => {
+    setPasswordCriteria({
+      hasMinLength: password.length >= 8,
+      hasUppercase: /[A-Z]/.test(password),
+      hasNumber: /[0-9]/.test(password),
+      hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+    });
+    setPasswordsMatch(password === confirmPassword && password.length > 0);
+  };
+
+  // Synchronizes form inputs with React state and clears associated error messages once the user begins typing
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    setFormData(prev => {
+      const newData = { ...prev, [name]: value };
+      
+      // Triggers the real-time password strength evaluation if either password field is modified
+      if (name === 'password' || name === 'confirmPassword') {
+        evaluatePassword(
+          name === 'password' ? value : newData.password,
+          name === 'confirmPassword' ? value : newData.confirmPassword
+        );
+      }
+      
+      return newData;
+    });
+
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
     if (errorMessage) setErrorMessage('');
   };
 
+  // Validates standard form fields to prevent blank submissions prior to API dispatch
   const validate = () => {
     const newErrors = {};
     if (!formData.username.trim()) newErrors.username = 'Username is required';
@@ -62,6 +103,7 @@ const TenantRegistration = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Dispatches the newly captured user profile data to the backend API and advances the UI to the OTP verification step on success
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -93,6 +135,7 @@ const TenantRegistration = () => {
       console.error(error);
       const errorData = error.response?.data || {};
       
+      // Parses standard Django backend errors and maps them to the corresponding frontend inputs
       const { global, fields } = parseBackendErrors(errorData);
       
       if (global) setErrorMessage(global);
@@ -105,6 +148,7 @@ const TenantRegistration = () => {
     }
   };
 
+  // Transmits the 6-digit OTP code to the backend to authenticate the newly registered user's email address
   const handleVerifySubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -125,6 +169,7 @@ const TenantRegistration = () => {
     }
   };
 
+  // Customizes the appearance of Material UI text fields to match the dark, transparent visual theme
   const customInputStyles = {
     mb: 2.5,
     '& .MuiOutlinedInput-root': {
@@ -170,6 +215,7 @@ const TenantRegistration = () => {
     }
   };
 
+  // Applies the frosted glassmorphism effect to the primary centered registration container
   const glassCardStyles = {
     maxWidth: '550px', 
     width: '100%',
@@ -180,6 +226,24 @@ const TenantRegistration = () => {
     textAlign: 'center', 
     backdropFilter: 'blur(10px)' 
   };
+
+  // A modular helper component that dynamically toggles between unfulfilled and fulfilled visual states for the password checklist
+  const RequirementItem = ({ met, text }) => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.8 }}>
+      {met ? (
+        <CheckCircle sx={{ color: '#4caf50', fontSize: 18 }} />
+      ) : (
+        <RadioButtonUnchecked sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 18 }} />
+      )}
+      <Typography sx={{ color: met ? 'white' : 'rgba(255,255,255,0.6)', fontSize: '0.8rem', fontFamily: "'Poppins', sans-serif", transition: 'color 0.3s ease' }}>
+        {text}
+      </Typography>
+    </Box>
+  );
+
+  // Computes the boolean value required to unlock the final "Create Account" submission button
+  const isPasswordFullyValid = Object.values(passwordCriteria).every(Boolean);
+  const isFormReadyToSubmit = isPasswordFullyValid && passwordsMatch && agreedToTerms && !loading;
 
   return (
     <Box
@@ -195,6 +259,7 @@ const TenantRegistration = () => {
         flexDirection: 'column',
       }}
     >
+      {/* Background dimming overlay for visual contrast */}
       <Box
         sx={{
           position: 'absolute',
@@ -204,6 +269,7 @@ const TenantRegistration = () => {
         }}
       />
 
+      {/* Top navigation header containing branding and external routing links */}
       <Box 
         sx={{ 
           position: 'relative', 
@@ -246,6 +312,7 @@ const TenantRegistration = () => {
         </Box>
       </Box>
 
+      {/* Primary centralized container responsible for rendering the active multi-step form views */}
       <Box 
         sx={{ 
           position: 'relative', 
@@ -296,8 +363,8 @@ const TenantRegistration = () => {
                   onChange={handleChange} 
                   disabled={loading} 
                   error={!!errors.password} 
-                  helperText={errors.password || 'Min 8 characters'} 
-                  sx={customInputStyles} 
+                  helperText={errors.password} 
+                  sx={{ ...customInputStyles, mb: 1.5 }} 
                   InputProps={{ 
                     startAdornment: (
                       <InputAdornment position="start">
@@ -331,7 +398,7 @@ const TenantRegistration = () => {
                   disabled={loading} 
                   error={!!errors.confirmPassword} 
                   helperText={errors.confirmPassword} 
-                  sx={customInputStyles} 
+                  sx={{ ...customInputStyles, mb: 2 }} 
                   InputProps={{ 
                     startAdornment: (
                       <InputAdornment position="start">
@@ -354,6 +421,17 @@ const TenantRegistration = () => {
                   }} 
                 />
 
+                <Box sx={{ mb: 4, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', bgcolor: 'rgba(0,0,0,0.3)', p: 2, borderRadius: 2 }}>
+                  <Typography sx={{ color: 'white', fontSize: '0.85rem', fontWeight: 'bold', mb: 1, fontFamily: "'Poppins', sans-serif" }}>
+                    Password Requirements:
+                  </Typography>
+                  <RequirementItem met={passwordCriteria.hasMinLength} text="Contains 8+ characters" />
+                  <RequirementItem met={passwordCriteria.hasUppercase} text="Contains uppercase letters" />
+                  <RequirementItem met={passwordCriteria.hasNumber} text="Contains numbers" />
+                  <RequirementItem met={passwordCriteria.hasSpecialChar} text="Contains special characters (!@#$%^&*)" />
+                  <RequirementItem met={passwordsMatch} text="Passwords match" />
+                </Box>
+
                 <Box sx={{ mb: 4 }}>
                   <FormControlLabel
                     control={<Checkbox checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)} sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }} />}
@@ -361,7 +439,23 @@ const TenantRegistration = () => {
                   />
                 </Box>
 
-                <Button type="submit" fullWidth variant="contained" disabled={loading} sx={{ bgcolor: 'white', color: 'black', borderRadius: '50px', py: 1.5, fontSize: '1rem', fontWeight: 700, fontFamily: "'Poppins', sans-serif", '&:hover': { bgcolor: 'grey.200' }, '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.7)' } }}>
+                <Button 
+                  type="submit" 
+                  fullWidth 
+                  variant="contained" 
+                  disabled={!isFormReadyToSubmit} 
+                  sx={{ 
+                    bgcolor: 'white', 
+                    color: 'black', 
+                    borderRadius: '50px', 
+                    py: 1.5, 
+                    fontSize: '1rem', 
+                    fontWeight: 700, 
+                    fontFamily: "'Poppins', sans-serif", 
+                    '&:hover': { bgcolor: 'grey.200' }, 
+                    '&.Mui-disabled': { bgcolor: 'rgba(255, 255, 255, 0.3)', color: 'rgba(255,255,255,0.5)' } 
+                  }}
+                >
                   {loading ? <CircularProgress size={24} sx={{ color: 'black' }} /> : 'CREATE ACCOUNT'}
                 </Button>
                 

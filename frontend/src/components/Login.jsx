@@ -39,6 +39,7 @@ function Login({ onLogin }) {
   
   const navigate = useNavigate();
 
+  // On mount, auto-fills the username if the user previously selected 'Remember me'
   useEffect(() => {
     const savedUsername = localStorage.getItem('seams_remembered_username');
     if (savedUsername) {
@@ -47,6 +48,7 @@ function Login({ onLogin }) {
     }
   }, []);
 
+  // Synchronizes form inputs and clears previous validation errors on typing
   const handleInputChange = (setter, field) => (e) => {
       setter(e.target.value);
       if (fieldErrors[field]) {
@@ -62,6 +64,7 @@ function Login({ onLogin }) {
     });
   };
 
+  // Dispatches login credentials, checks onboarding status, and routes the user to their designated dashboard
   const handleSubmit = async (e) => {
     e.preventDefault();
     setGlobalError('');
@@ -100,7 +103,16 @@ function Login({ onLogin }) {
       } else {
         const { global, fields } = parseBackendErrors(data);
         
-        if (response.status === 401 || (global && global.includes('active account'))) {
+        // Intercepts custom HTTP 403 responses to deliver precise onboarding status messages to the user
+        if (response.status === 403 && data.error) {
+            setGlobalError(data.error);
+            
+            // Automatically prompts the user with the verification modal if an unverified email barrier is detected
+            if (data.error.includes('verify your email')) {
+                setVerifyData(prev => ({ ...prev, email: username }));
+                setVerifyOpen(true);
+            }
+        } else if (response.status === 401 || (global && global.includes('active account'))) {
              setGlobalError('Invalid username or password.');
         } else {
              setGlobalError(global || 'Login failed. Please try again.');
@@ -116,6 +128,7 @@ function Login({ onLogin }) {
     }
   };
 
+  // Sends the 6-digit OTP code to complete the email verification process
   const handleVerifySubmit = async () => {
     if (!verifyData.email || !verifyData.code) {
       setVerifyMsg({ type: 'error', text: 'Please fill in both fields.' });
@@ -151,6 +164,7 @@ function Login({ onLogin }) {
     }
   };
 
+  // Submits an email address to request a temporary password reset link
   const handleForgotSubmit = async () => {
     if (!forgotEmail) {
       setForgotMsg({ type: 'error', text: 'Please enter your email address.' });
@@ -272,7 +286,6 @@ function Login({ onLogin }) {
     }
   };
 
-  // Reusable glass style for all modals
   const glassDialogStyle = {
     backdropFilter: 'blur(15px)',
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
@@ -282,7 +295,6 @@ function Login({ onLogin }) {
     boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)'
   };
 
-  // Helper for dialog divider color
   const dividerStyle = { borderColor: 'rgba(255,255,255,0.15)' };
 
   return (
@@ -655,7 +667,7 @@ function Login({ onLogin }) {
               fullWidth
               required
               inputProps={{ maxLength: 6 }}
-              sx={{ ...customInputStyles, mb: 0 }} // Remove bottom margin for the last input
+              sx={{ ...customInputStyles, mb: 0 }} 
             />
           </Box>
         </DialogContent>
