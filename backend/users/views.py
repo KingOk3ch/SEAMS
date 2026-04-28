@@ -8,6 +8,7 @@ from django.conf import settings
 from django.apps import apps 
 from django.db import transaction 
 from rest_framework_simplejwt.views import TokenObtainPairView
+from django.utils import timezone
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
@@ -21,6 +22,64 @@ import secrets
 import string
 
 User = get_user_model()
+
+# Generates a standardized, branded HTML wrapper for all system outgoing emails
+def get_seams_html_email(title, first_name, message_lines, highlighted_code=None):
+    current_year = timezone.now().year
+    
+    # Converts list of strings into formatted HTML paragraphs
+    paragraphs = "".join([f'<p style="color: #444444; font-size: 15px; line-height: 1.6; margin-bottom: 15px;">{line}</p>' for line in message_lines])
+    
+    # Renders a high-contrast box for OTPs or Temporary Passwords if provided
+    code_block = ""
+    if highlighted_code:
+        code_block = f"""
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="display: inline-block; padding: 20px 40px; background-color: #1a1a1a; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                <span style="font-family: 'Courier New', Courier, monospace; font-size: 32px; font-weight: bold; color: #ffffff; letter-spacing: 6px;">
+                    {highlighted_code}
+                </span>
+            </div>
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="margin: 0; padding: 0; background-color: #f9f9f9; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9f9f9; padding: 30px 10px;">
+            <tr>
+                <td align="center">
+                    <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">
+                        <tr>
+                            <td align="center" style="padding: 30px 20px; background-color: #ffffff; border-bottom: 2px solid #f0f0f0;">
+                                <img src="https://i.imgur.com/J24GItA.png" alt="SEAMS Logo" style="height: 60px; width: auto; display: block;" />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+                                <h2 style="color: #1a1a1a; font-size: 22px; margin-bottom: 25px; text-align: center; text-transform: uppercase; letter-spacing: 1px;">{title}</h2>
+                                <p style="color: #333333; font-size: 16px; margin-bottom: 20px;">Hi {first_name},</p>
+                                {paragraphs}
+                                {code_block}
+                                <p style="color: #777777; font-size: 14px; margin-top: 30px; border-top: 1px solid #f0f0f0; padding-top: 20px; font-style: italic;">
+                                    This is an automated message from the SEAMS system. Please do not reply directly to this email.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td align="center" style="padding: 25px; background-color: #1a1a1a; color: #ffffff;">
+                                <p style="margin: 0; font-size: 12px; opacity: 0.8;">&copy; {current_year} Smart Estates Administration and Maintenance System.</p>
+                                <p style="margin: 5px 0 0 0; font-size: 11px; opacity: 0.6;">Ensuring seamless living through technology.</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -58,7 +117,7 @@ class UserViewSet(viewsets.ModelViewSet):
             
             if user.role == 'tenant' and user.email_verification_token:
                 try:
-                    email_msg = (
+                    plain_msg = (
                         f"Hello {user.first_name},\n\n"
                         f"An administrator has registered you for SEAMS.\n\n"
                         f"Your Temporary Password is: {generated_password or 'Provided by Admin'}\n"
@@ -66,12 +125,26 @@ class UserViewSet(viewsets.ModelViewSet):
                         f"Please enter this code on the registration page to verify your email.\n\n"
                         f"IMPORTANT: For your security, please navigate to your profile settings and change this temporary password immediately upon your first login."
                     )
+                    
+                    html_msg = get_seams_html_email(
+                        title="Welcome to SEAMS",
+                        first_name=user.first_name,
+                        message_lines=[
+                            "An administrator has successfully registered your account on the SEAMS platform.",
+                            f"Your Temporary Password is: <b>{generated_password or 'Provided by Admin'}</b>",
+                            "Your Email Verification Code is provided below. Please enter this code on the registration page to verify your email.",
+                            "<b>IMPORTANT:</b> For your security, please navigate to your profile settings and change this temporary password immediately upon your first login."
+                        ],
+                        highlighted_code=user.email_verification_token
+                    )
+
                     send_mail(
                         subject='Verify Your Email & Temporary Password - SEAMS',
-                        message=email_msg,
+                        message=plain_msg,
                         from_email=settings.DEFAULT_FROM_EMAIL,
                         recipient_list=[user.email],
                         fail_silently=False,
+                        html_message=html_msg
                     )
                 except Exception as e:
                     print(f"Failed to send email to tenant: {e}")
@@ -148,12 +221,23 @@ class UserViewSet(viewsets.ModelViewSet):
             
             if password_changed:
                 try:
+                    plain_msg = f'Hello {user.first_name},\n\nYour password has been successfully updated.\n\nIf you did not make this change, please contact the administrator immediately.'
+                    html_msg = get_seams_html_email(
+                        title="Password Changed Successfully",
+                        first_name=user.first_name,
+                        message_lines=[
+                            "This is a confirmation that your password has been successfully updated.",
+                            "If you did not make this change, please contact the estate administrator immediately to secure your account."
+                        ]
+                    )
+
                     send_mail(
                         subject='SEAMS - Password Changed Successfully',
-                        message=f'Hello {user.first_name},\n\nYour password has been successfully updated.\n\nIf you did not make this change, please contact the administrator immediately.',
+                        message=plain_msg,
                         from_email=settings.DEFAULT_FROM_EMAIL,
                         recipient_list=[user.email],
                         fail_silently=False,
+                        html_message=html_msg
                     )
                 except Exception as e:
                     print(f"Failed to send password success email: {e}")
@@ -205,12 +289,24 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save()
         
         try:
+            plain_msg = f'Hello {user.first_name},\n\nYour password has been successfully reset.\n\nYour new Temporary Password is: {new_password}\n\nPlease log in using this temporary password, then navigate directly to your Profile Settings to change it. For security, you will be required to log back in once your password is updated.'
+            html_msg = get_seams_html_email(
+                title="Password Reset Request",
+                first_name=user.first_name,
+                message_lines=[
+                    "Your password has been successfully reset.",
+                    "Your new Temporary Password is provided below. Please log in using this password, then navigate directly to your Profile Settings to change it for your security."
+                ],
+                highlighted_code=new_password
+            )
+
             send_mail(
                 subject='SEAMS - Password Reset Request',
-                message=f'Hello {user.first_name},\n\nYour password has been successfully reset.\n\nYour new Temporary Password is: {new_password}\n\nPlease log in using this temporary password, then navigate directly to your Profile Settings to change it. For security, you will be required to log back in once your password is updated.',
+                message=plain_msg,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
                 fail_silently=False,
+                html_message=html_msg
             )
             return Response({'message': 'A temporary password has been sent to your email address.'}, status=status.HTTP_200_OK)
         except Exception as e:
@@ -315,16 +411,33 @@ class UserViewSet(viewsets.ModelViewSet):
 
             try:
                 if user.is_active:
-                    email_msg = f'Hello {user.first_name},\n\nYour account is approved! You are assigned to House {house.house_number}.\nYou can now log in.'
+                    plain_msg = f'Hello {user.first_name},\n\nYour account is approved! You are assigned to House {house.house_number}.\nYou can now log in.'
+                    lines = [
+                        "Great news! Your account has been officially approved by the estate administrator.",
+                        f"You have been successfully assigned to <strong>House {house.house_number}</strong>.",
+                        "You can now log in and access your personalized tenant dashboard."
+                    ]
                 else:
-                    email_msg = f'Hello {user.first_name},\n\nYour account is approved and you are assigned to House {house.house_number}!\n\nPlease verify your email to log in.'
+                    plain_msg = f'Hello {user.first_name},\n\nYour account is approved and you are assigned to House {house.house_number}!\n\nPlease verify your email to log in.'
+                    lines = [
+                        "Great news! Your account has been officially approved by the estate administrator.",
+                        f"You have been successfully assigned to <strong>House {house.house_number}</strong>.",
+                        "Please verify your email using the verification code you received to log in to your tenant dashboard."
+                    ]
+                    
+                html_msg = get_seams_html_email(
+                    title="Account Approved & House Assigned",
+                    first_name=user.first_name,
+                    message_lines=lines
+                )
 
                 send_mail(
                     subject='SEAMS Account Approved & House Assigned',
-                    message=email_msg,
+                    message=plain_msg,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
                     fail_silently=False,
+                    html_message=html_msg
                 )
             except Exception as e:
                 print(f"Failed to send approval email: {e}")
@@ -352,12 +465,24 @@ class UserViewSet(viewsets.ModelViewSet):
         email = user.email
         
         try:
+            plain_msg = f'Hello {first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}'
+            html_msg = get_seams_html_email(
+                title="Account Registration Update",
+                first_name=first_name,
+                message_lines=[
+                    "We regret to inform you that your account registration was not approved at this time.",
+                    f"<strong>Reason:</strong> {rejection_reason}",
+                    "If you have any questions or require further clarification, please contact the estate administration."
+                ]
+            )
+
             send_mail(
                 subject='SEAMS Account Registration Update',
-                message=f'Hello {first_name},\n\nYour account registration was not approved.\nReason: {rejection_reason}',
+                message=plain_msg,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
                 fail_silently=False,
+                html_message=html_msg
             )
         except Exception as e:
             print(f"Failed to send rejection email: {e}")
@@ -380,17 +505,31 @@ def tenant_register(request):
 
         print(f"Sending verification code {code} to {user.email}...")
         try:
+            plain_msg = f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nYour Email Verification Code is: {code}\n\nPlease enter this code to verify your account.\n\nIf you did not request this, please ignore this email.'
+            html_msg = get_seams_html_email(
+                title="Verify Your Email",
+                first_name=user.first_name,
+                message_lines=[
+                    "Thank you for registering with SEAMS. We are thrilled to have you on board!",
+                    "To complete your registration and verify your email address, please use the following 6-digit verification code:"
+                ],
+                highlighted_code=code
+            )
+
             result = send_mail(
                 subject='Verify Your Email - SEAMS',
-                message=f'Hello {user.first_name},\n\nThank you for registering with SEAMS.\n\nYour Email Verification Code is: {code}\n\nPlease enter this code to verify your account.\n\nIf you did not request this, please ignore this email.',
+                message=plain_msg,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
                 fail_silently=False,
+                html_message=html_msg
             )
             print(f"Email sent successfully (result: {result}) to {user.email}")
 
         except Exception as e:
             print(f"Failed to send email to {user.email}: {e}")
+            # Don't fail the registration if email fails, but log it
+            # You might want to implement a retry mechanism or queue system here
 
         return Response({
             'message': 'Registration successful! Verification code sent to email.',
