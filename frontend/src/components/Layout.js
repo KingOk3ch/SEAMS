@@ -31,9 +31,9 @@ function Layout({ children, onLogout }) {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   useEffect(() => {
-    fetchData(); // Initial Fetch
+    fetchData(); // Initial data fetch on component mount
 
-    // Poll every 5 seconds to keep notification badges updated
+    // Polling mechanism to refresh notification counts every 5 seconds
     const interval = setInterval(() => {
         fetchData();
     }, 5000); 
@@ -51,8 +51,8 @@ function Layout({ children, onLogout }) {
   const fetchSupportBadge = async () => {
     try {
         const token = localStorage.getItem('access_token');
-        // Allows both tenants and admins to fetch their active support ticket counts
-        if (!token || !['estate_admin', 'tenant'].includes(user.role)) return;
+        // Safely checks if the role is allowed using optional chaining
+        if (!token || !['estate_admin', 'tenant'].includes(user?.role)) return;
 
         const response = await fetch('http://localhost:8000/api/support/open_count/', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -81,20 +81,17 @@ function Layout({ children, onLogout }) {
             if (data.results) data = data.results; 
 
             let count = 0;
-            const role = (user.role || '').toLowerCase();
-            const userId = String(user.id);
+            const role = (user?.role || '').toLowerCase(); // Safely extracted
+            const userId = String(user?.id || ''); // Safely extracted
 
-            // Safe ID Helper to prevent type mismatches
             const getId = (field) => {
                 if (!field) return '';
                 return typeof field === 'object' ? String(field.id) : String(field);
             };
 
             if (role === 'estate_admin') {
-                // Admin: Count 'new' (unassigned) requests
                 count = data.filter(r => r.status === 'new').length;
             } else if (role === 'technician') {
-                // Technician: Count 'assigned' (pending attention) items for THIS tech
                 count = data.filter(r => r.status === 'assigned' && getId(r.assigned_to) === userId).length;
             }
 
@@ -110,12 +107,11 @@ function Layout({ children, onLogout }) {
       const token = localStorage.getItem('access_token');
       if (!token) return;
 
-      const role = user.role;
+      const role = user?.role; // Safely extracted
       let url = '';
       let filterFn = () => false;
 
       if (role === 'estate_admin') {
-        // Admin: Count new successful payments that haven't been acknowledged yet
         url = 'http://localhost:8000/api/payments/';
         filterFn = (item) => item.is_verified === true && item.admin_has_viewed === false;
       } 
@@ -195,14 +191,14 @@ function Layout({ children, onLogout }) {
   };
 
   const getProfileImageUrl = () => {
-    if (!user.profile_picture) return undefined;
-    if (user.profile_picture.startsWith('http')) return user.profile_picture;
-    return `http://localhost:8000${user.profile_picture}`;
+    if (!user?.profile_picture) return undefined;
+    if (user?.profile_picture?.startsWith('http')) return user.profile_picture;
+    return `http://localhost:8000${user?.profile_picture}`;
   };
 
   // Structures the sidebar navigation items into logical partitions based on user roles
   const getMenuItems = () => {
-    const role = user.role;
+    const role = user?.role; // Option chaining prevents crashes here
     
     if (role === 'estate_admin') {
       return [
@@ -267,7 +263,7 @@ function Layout({ children, onLogout }) {
         }
       ];
     }
-    return [];
+    return []; // Returns empty gracefully if user has no role yet
   };
 
   const drawer = (
@@ -402,13 +398,13 @@ function Layout({ children, onLogout }) {
           {/* User profile avatar dropdown trigger */}
           <IconButton onClick={(e) => setAnchorEl(e.currentTarget)} sx={{ ml: 2 }}>
             <Avatar src={getProfileImageUrl()} sx={{ bgcolor: 'secondary.main' }}>
-              {!getProfileImageUrl() && (user.first_name?.[0] || 'U')}
+              {!getProfileImageUrl() && (user?.first_name?.[0] || 'U')}
             </Avatar>
           </IconButton>
 
           {/* Dropdown menu for user profile actions */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
-            <MenuItem disabled><Typography variant="body2" fontWeight="bold">{user.first_name} {user.last_name}</Typography></MenuItem>
+            <MenuItem disabled><Typography variant="body2" fontWeight="bold">{user?.first_name || 'User'} {user?.last_name || ''}</Typography></MenuItem>
             <Divider />
             <MenuItem onClick={() => { setAnchorEl(null); navigate('/profile'); }}><ListItemIcon><AccountCircle fontSize="small" /></ListItemIcon>My Profile</MenuItem>
             <MenuItem onClick={handleLogout}><ListItemIcon><Logout fontSize="small" /></ListItemIcon>Logout</MenuItem>

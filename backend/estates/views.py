@@ -8,15 +8,22 @@ from datetime import date, timedelta
 from django.db import IntegrityError, transaction
 from decimal import Decimal
 from django.utils import timezone
+from django.contrib.auth import get_user_model
+
 from .models import House, Tenant, Contract, Payment, Bill, Complaint, ComplaintMessage
 from .serializers import HouseSerializer, TenantSerializer, ContractSerializer, PaymentSerializer, BillSerializer, ComplaintSerializer, ComplaintMessageSerializer
 from users.models import Notification
 from users.permissions import IsEstateAdminOrReadOnly
+from users.serializers import UserSerializer
+from maintenance.models import MaintenanceRequest
+from maintenance.serializers import MaintenanceRequestSerializer
 from rest_framework.permissions import AllowAny
 from .mpesa import initiate_stk_push
 import logging
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = House.objects.all()
@@ -381,7 +388,6 @@ class MpesaCallbackView(APIView):
             if result_code == 0:
                 callback_items = data.get('CallbackMetadata', {}).get('Item', [])
                 receipt_number = ""
-                # phone = ""
                 for item in callback_items:
                     if item.get('Name') == 'MpesaReceiptNumber':
                         receipt_number = item.get('Value')
@@ -443,13 +449,6 @@ class DashboardStatsView(APIView):
     permission_classes = [IsEstateAdminOrReadOnly]
 
     def get(self, request):
-        from django.contrib.auth import get_user_model
-        from maintenance.models import MaintenanceRequest
-        from maintenance.serializers import MaintenanceRequestSerializer
-        from users.serializers import UserSerializer
-
-        User = get_user_model()
-
         total_houses = House.objects.count()
         occupied_houses = House.objects.filter(status='occupied').count()
         vacant_houses_qs = House.objects.filter(status='vacant')
@@ -482,6 +481,7 @@ class DashboardStatsView(APIView):
             "pendingUsers": UserSerializer(pending_users_qs, many=True).data,
             "maintenanceRequests": MaintenanceRequestSerializer(active_requests_qs[:5], many=True).data
         })
+
 
 # Complaint and Support Ticket Operations
 
