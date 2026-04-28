@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Box, AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItem, 
   ListItemIcon, ListItemText, ListItemButton, Avatar, Menu, MenuItem, Divider, 
-  Badge, Popover 
+  Badge, Popover, ListSubheader
 } from '@mui/material';
 import {
   Menu as MenuIcon, Dashboard, Home, People, Build, Payment, Description, 
@@ -21,7 +21,7 @@ function Layout({ children, onLogout }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   
-  // --- BADGE STATES ---
+  // State variables for tracking notification badge counts across different modules
   const [paymentBadgeCount, setPaymentBadgeCount] = useState(0);
   const [maintenanceBadgeCount, setMaintenanceBadgeCount] = useState(0); 
   const [supportBadgeCount, setSupportBadgeCount] = useState(0);
@@ -33,7 +33,7 @@ function Layout({ children, onLogout }) {
   useEffect(() => {
     fetchData(); // Initial Fetch
 
-    // Poll every 5 seconds
+    // Poll every 5 seconds to keep notification badges updated
     const interval = setInterval(() => {
         fetchData();
     }, 5000); 
@@ -84,7 +84,7 @@ function Layout({ children, onLogout }) {
             const role = (user.role || '').toLowerCase();
             const userId = String(user.id);
 
-            // Safe ID Helper
+            // Safe ID Helper to prevent type mismatches
             const getId = (field) => {
                 if (!field) return '';
                 return typeof field === 'object' ? String(field.id) : String(field);
@@ -115,7 +115,7 @@ function Layout({ children, onLogout }) {
       let filterFn = () => false;
 
       if (role === 'estate_admin') {
-        // Admin: Count new successful payments that haven't been acknowledged yet (acts as an unread receipt to prevent STK push race condition bugs)
+        // Admin: Count new successful payments that haven't been acknowledged yet
         url = 'http://localhost:8000/api/payments/';
         filterFn = (item) => item.is_verified === true && item.admin_has_viewed === false;
       } 
@@ -200,30 +200,71 @@ function Layout({ children, onLogout }) {
     return `http://localhost:8000${user.profile_picture}`;
   };
 
+  // Structures the sidebar navigation items into logical partitions based on user roles
   const getMenuItems = () => {
     const role = user.role;
+    
     if (role === 'estate_admin') {
       return [
-        { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
-        { text: 'Houses', icon: <Home />, path: '/houses' },
-        { text: 'Tenants', icon: <People />, path: '/tenants' },
-        { text: 'Users', icon: <PersonAdd />, path: '/users' },
-        { text: 'Contracts', icon: <Description />, path: '/contracts' },
-        { text: 'Payments', icon: <Payment />, path: '/payments' },
-        { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
-        { text: 'Support Inbox', icon: <Forum />, path: '/admin-support' },
-        { text: 'Reports', icon: <Assessment />, path: '/reports' },
+        {
+          section: 'Overview',
+          items: [
+            { text: 'Dashboard', icon: <Dashboard />, path: '/dashboard' }
+          ]
+        },
+        {
+          section: 'Estates & People',
+          items: [
+            { text: 'Houses', icon: <Home />, path: '/houses' },
+            { text: 'Tenants', icon: <People />, path: '/tenants' },
+            { text: 'Users', icon: <PersonAdd />, path: '/users' }
+          ]
+        },
+        {
+          section: 'Finance & Leasing',
+          items: [
+            { text: 'Contracts', icon: <Description />, path: '/contracts' },
+            { text: 'Payments', icon: <Payment />, path: '/payments' }
+          ]
+        },
+        {
+          section: 'Operations & Analytics',
+          items: [
+            { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
+            { text: 'Support Inbox', icon: <Forum />, path: '/admin-support' },
+            { text: 'Reports', icon: <Assessment />, path: '/reports' }
+          ]
+        }
       ];
     }
+    
     if (role === 'technician') {
-      return [{ text: 'Maintenance Requests', icon: <Build />, path: '/maintenance' }];
+      return [
+        {
+          section: 'Operations',
+          items: [
+            { text: 'Maintenance Requests', icon: <Build />, path: '/maintenance' }
+          ]
+        }
+      ];
     }
+    
     if (role === 'tenant') {
       return [
-        { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' },
-        { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' },
-        { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
-        { text: 'Help Desk', icon: <Forum />, path: '/tenant-support' },
+        {
+          section: 'Overview',
+          items: [
+            { text: 'My Dashboard', icon: <Dashboard />, path: '/tenant-dashboard' }
+          ]
+        },
+        {
+          section: 'Account & Services',
+          items: [
+            { text: 'Payments & Bills', icon: <Payment />, path: '/tenant-payments' },
+            { text: 'Maintenance', icon: <Build />, path: '/maintenance' },
+            { text: 'Help Desk', icon: <Forum />, path: '/tenant-support' }
+          ]
+        }
       ];
     }
     return [];
@@ -254,44 +295,65 @@ function Layout({ children, onLogout }) {
       </Toolbar>
       
       <Divider />
-      <List sx={{ flexGrow: 1 }}>
-          {getMenuItems().map((item) => {
-          // Detect Tab Types
-          const isPaymentTab = item.text.includes('Payment') || item.text.includes('Bills');
-          const isMaintenanceTab = item.text.includes('Maintenance');
-          const isSupportTab = item.text === 'Support Inbox' || item.text === 'Help Desk';
+      
+      {/* Iterates over the structured menu array to render section headers and nested navigational links */}
+      <List sx={{ flexGrow: 1, overflowY: 'auto' }}>
+          {getMenuItems().map((group, index) => (
+            <React.Fragment key={group.section || index}>
+              {group.section && (
+                <ListSubheader 
+                  sx={{ 
+                    bgcolor: 'transparent', 
+                    color: 'text.secondary', 
+                    fontWeight: 'bold', 
+                    textTransform: 'uppercase', 
+                    fontSize: '0.75rem',
+                    lineHeight: '2.5',
+                    mt: index !== 0 ? 1 : 0
+                  }}
+                >
+                  {group.section}
+                </ListSubheader>
+              )}
+              {group.items.map((item) => {
+                // Identifies the current menu item to apply the correct badge count dynamically
+                const isPaymentTab = item.text.includes('Payment') || item.text.includes('Bills');
+                const isMaintenanceTab = item.text.includes('Maintenance');
+                const isSupportTab = item.text === 'Support Inbox' || item.text === 'Help Desk';
 
-          return (
-            <ListItem key={item.text} disablePadding>
-              <ListItemButton 
-                onClick={() => { navigate(item.path); setMobileOpen(false); }}
-                selected={location.pathname === item.path}
-              >
-                <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
-                  
-                          {/* --- APPLY BADGES --- */}
-                          {isPaymentTab ? (
-                            <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
-                              {item.icon}
-                            </Badge>
-                          ) : isMaintenanceTab ? (
-                            <Badge badgeContent={maintenanceBadgeCount} color="error" invisible={maintenanceBadgeCount === 0}>
-                              {item.icon}
-                            </Badge>
-                          ) : isSupportTab ? (
-                            <Badge badgeContent={supportBadgeCount} color="error" invisible={supportBadgeCount === 0}>
-                              {item.icon}
-                            </Badge>
-                          ) : (
-                            item.icon
-                          )}
+                return (
+                  <ListItem key={item.text} disablePadding>
+                    <ListItemButton 
+                      onClick={() => { navigate(item.path); setMobileOpen(false); }}
+                      selected={location.pathname === item.path}
+                    >
+                      <ListItemIcon sx={{ color: location.pathname === item.path ? 'primary.main' : 'inherit' }}>
+                        
+                                {/* Renders dynamic notification badges on specific sidebar tabs */}
+                                {isPaymentTab ? (
+                                  <Badge badgeContent={paymentBadgeCount} color="error" invisible={paymentBadgeCount === 0}>
+                                    {item.icon}
+                                  </Badge>
+                                ) : isMaintenanceTab ? (
+                                  <Badge badgeContent={maintenanceBadgeCount} color="error" invisible={maintenanceBadgeCount === 0}>
+                                    {item.icon}
+                                  </Badge>
+                                ) : isSupportTab ? (
+                                  <Badge badgeContent={supportBadgeCount} color="error" invisible={supportBadgeCount === 0}>
+                                    {item.icon}
+                                  </Badge>
+                                ) : (
+                                  item.icon
+                                )}
 
-                </ListItemIcon>
-                <ListItemText primary={item.text} />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
+                      </ListItemIcon>
+                      <ListItemText primary={item.text} />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </React.Fragment>
+          ))}
       </List>
       <Divider />
       <List>
@@ -330,21 +392,21 @@ function Layout({ children, onLogout }) {
             Smart Estates Administration and Maintenance System
           </Typography>
           
-          {/* NOTIFICATION BELL */}
+          {/* Global notification bell and unread counter */}
           <IconButton color="inherit" onClick={(e) => setNotifAnchorEl(e.currentTarget)}>
             <Badge badgeContent={unreadCount} color="error">
               <Notifications />
             </Badge>
           </IconButton>
 
-          {/* PROFILE AVATAR */}
+          {/* User profile avatar dropdown trigger */}
           <IconButton onClick={(e) => setAnchorEl(e.currentTarget)} sx={{ ml: 2 }}>
             <Avatar src={getProfileImageUrl()} sx={{ bgcolor: 'secondary.main' }}>
               {!getProfileImageUrl() && (user.first_name?.[0] || 'U')}
             </Avatar>
           </IconButton>
 
-          {/* Profile Menu */}
+          {/* Dropdown menu for user profile actions */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
             <MenuItem disabled><Typography variant="body2" fontWeight="bold">{user.first_name} {user.last_name}</Typography></MenuItem>
             <Divider />
@@ -352,7 +414,7 @@ function Layout({ children, onLogout }) {
             <MenuItem onClick={handleLogout}><ListItemIcon><Logout fontSize="small" /></ListItemIcon>Logout</MenuItem>
           </Menu>
 
-          {/* Notifications Popover */}
+          {/* Popover displaying recent system notifications */}
           <Popover
             open={Boolean(notifAnchorEl)}
             anchorEl={notifAnchorEl}
